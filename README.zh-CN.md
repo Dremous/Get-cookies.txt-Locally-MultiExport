@@ -27,6 +27,11 @@
 
 ## 安装
 
+### 直接下载
+
+每次推送 `v*.*.*` 标签后，`Release` workflow 会自动构建并把 Chrome / Firefox 的 zip
+上传到 [GitHub Releases](https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport/releases)，可直接下载。
+
 ### Chrome / Edge 等 Chromium 浏览器（加载已解压的扩展）
 
 1. 下载或克隆本仓库。

@@ -30,6 +30,12 @@ is grouped under `example.co.uk` rather than `co.uk`.
 
 ## Install
 
+### Prebuilt bundles
+
+Chrome and Firefox ZIPs are attached automatically to
+[GitHub Releases](https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport/releases) by the `Release`
+workflow whenever a `v*.*.*` tag is pushed.
+
 ### Load unpacked (Chrome / Edge / other Chromium browsers)
 
 1. Download or clone this repository.
