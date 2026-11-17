@@ -1,0 +1,35 @@
+@media (prefers-color-scheme: dark) {
+  html {
+    background-color: #2a2a2a;
+    scrollbar-color: #aaa #333;
+    color: #dfdfdf;
+  }
+
+  h1 .brand-tag,
+  .current-url a {
+    color: #e09200;
+  }
+
+  .current-url .material-symbols-outlined {
+    color: #aaa;
+  }
+
+  .table-container {
+    background-color: #1e1e1e;
+  }
+
+  .netscape-table th,
+  td {
+    border: solid 1px #424242;
+  }
+
+  .netscape-table tbody tr:nth-of-type(2n + 1) {
+    background-color: #2a2a2a;
+  }
+
+  select {
+    background-color: #3a3a3a;
+    color: #dfdfdf;
+    border: solid 1px #555;
+  }
+}

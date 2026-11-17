@@ -1,0 +1,295 @@
+/* Multi-site batch export UI */
+
+.panel {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em;
+  padding: 6px 4px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 6px 6px 0 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.tab:focus-visible {
+  box-shadow: 0 0 0 2px rgba(72, 95, 199, 0.45);
+}
+
+.tab:hover {
+  background: rgba(72, 95, 199, 0.08);
+}
+
+.tab.active {
+  color: #3153ee;
+  border-bottom-color: #3153ee;
+  font-weight: bold;
+}
+
+.tab .material-symbols-outlined {
+  font-size: 1.05rem;
+}
+
+.tab-badge {
+  min-width: 1.35em;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #485fc7;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.35em;
+  text-align: center;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.site-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid #c9c9c9;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.site-search .material-symbols-outlined {
+  font-size: 1rem;
+  color: #666;
+}
+
+.site-search input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+}
+
+.tool-btn {
+  padding: 4px 8px;
+  border: 1px solid #485fc7;
+  border-radius: 6px;
+  background: #fff;
+  color: #485fc7;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.tool-btn:hover {
+  background: #485fc7;
+  color: #fff;
+}
+
+.selection-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.site-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.site-empty {
+  margin: 0;
+  padding: 14px 10px;
+  color: #888;
+  text-align: center;
+}
+
+.site-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+
+.site-item:last-child {
+  border-bottom: none;
+}
+
+.site-item:hover {
+  background: #f2f6ff;
+}
+
+.site-checkbox {
+  margin: 0;
+  accent-color: #485fc7;
+}
+
+.site-name {
+  flex: 1;
+  overflow: hidden;
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-current {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #e8edff;
+  color: #3153ee;
+  font-size: 0.7rem;
+}
+
+.site-meta {
+  flex: none;
+  min-width: 1.8em;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f1f1f1;
+  color: #666;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.batch-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em 1em;
+}
+
+.batch-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.export-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.batch-status {
+  min-height: 1.1em;
+  margin: 0;
+  color: #3153ee;
+  font-size: 0.8rem;
+}
+
+.batch-status[data-kind="error"] {
+  color: #c0392b;
+}
+
+.batch-hint {
+  margin: 0;
+  color: #777;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tab:hover {
+    background: rgba(224, 146, 0, 0.12);
+  }
+
+  .tab.active {
+    color: #e09200;
+    border-bottom-color: #e09200;
+  }
+
+  .tab-badge {
+    background: #e09200;
+    color: #222;
+  }
+
+  .site-search {
+    border-color: #555;
+    background: #3a3a3a;
+  }
+
+  .site-search input {
+    color: #dfdfdf;
+  }
+
+  .site-search .material-symbols-outlined {
+    color: #aaa;
+  }
+
+  .tool-btn {
+    border-color: #7f93ff;
+    background: transparent;
+    color: #9db0ff;
+  }
+
+  .tool-btn:hover {
+    background: #7f93ff;
+    color: #222;
+  }
+
+  .selection-summary {
+    color: #bbb;
+  }
+
+  .site-list {
+    border-color: #444;
+    background: #2a2a2a;
+  }
+
+  .site-empty {
+    color: #999;
+  }
+
+  .site-item {
+    border-bottom-color: #3a3a3a;
+  }
+
+  .site-item:hover {
+    background: #333;
+  }
+
+  .site-current {
+    background: #4a3a1a;
+    color: #e09200;
+  }
+
+  .site-meta {
+    background: #3a3a3a;
+    color: #bbb;
+  }
+
+  .batch-status {
+    color: #e09200;
+  }
+
+  .batch-hint {
+    color: #aaa;
+  }
+}

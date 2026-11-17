@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="popup.dark.css" />
+    <link rel="stylesheet" href="popup-options.css" />
+    <link rel="stylesheet" href="popup-batch.css" />
+    <link rel="stylesheet" href="iconfont/material-icons.css" />
+    <link rel="stylesheet" href="donation.css" />
+    <script src="popup.mjs" type="module" defer></script>
+    <script src="table-nowrap.js" defer></script>
+  </head>
+
+  <body>
+    <header>
+      <h1>Get cookies.txt <span class="brand-tag">LOCALLY</span></h1>
+      <nav class="tab-bar" role="tablist">
+        <button
+          id="tabSingle"
+          class="tab active"
+          role="tab"
+          aria-selected="true"
+          aria-controls="singlePanel"
+          data-panel="singlePanel"
+        >
+          <span class="material-symbols-outlined">tab</span>
+          Current Site
+        </button>
+        <button
+          id="tabMulti"
+          class="tab"
+          role="tab"
+          aria-selected="false"
+          aria-controls="multiPanel"
+          data-panel="multiPanel"
+        >
+          <span class="material-symbols-outlined">library_add_check</span>
+          Multiple Sites
+          <span id="siteCountBadge" class="tab-badge">0</span>
+        </button>
+      </nav>
+      <hr />
+    </header>
+
+    <main>
+      <section id="singlePanel" class="panel" role="tabpanel">
+        <p class="current-url">
+          <span class="material-symbols-outlined">link</span>
+          <a id="location"></a>
+        </p>
+
+        <div class="export-btn-container">
+          <button id="export" class="export-btn export">
+            <span class="button-text">
+              Export
+              <span class="material-symbols-outlined">download</span>
+            </span>
+          </button>
+          <button id="exportAs" class="export-btn export-as">
+            <span class="button-text">
+              Export As
+              <span class="material-symbols-outlined">download</span>
+            </span>
+          </button>
+          <button id="copy" class="export-btn copy">
+            <span class="button-text default-copy-text">
+              Copy
+              <span class="material-symbols-outlined">content_paste</span>
+            </span>
+            <span class="button-text copied-text">
+              Copied!
+              <span class="material-symbols-outlined">check</span>
+            </span>
+          </button>
+          <button id="exportAll" class="export-btn large export-all">
+            <span class="button-text">
+              Export All Cookies
+              <span class="material-symbols-outlined">download</span>
+            </span>
+          </button>
+        </div>
+
+        <div id="optionsContainer" class="option-container">
+          <div class="format-option option">
+            <label for="format">Export Format:</label>
+            <select id="format" name="format">
+              <option value="netscape" selected>Netscape</option>
+              <option value="json">JSON</option>
+              <option value="header">Header String</option>
+            </select>
+          </div>
+
+          <div class="nowrap-option option">
+            <label for="nowrapOption">Table Nowrap: </label>
+            <input type="checkbox" id="nowrapOption" name="nowrapOption" checked />
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table id="netscapeTable" class="netscape-table nowrap">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Include Subdomains</th>
+                <th>Path</th>
+                <th>Secure</th>
+                <th>Expiry</th>
+                <th>Name</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="donation">
+          <details>
+            <summary class>Buy Developer a Coffee ☕</summary>
+            <div class="donation-description">
+              <p>Got many offers to buy this extension, but I'm never going to sell it to spammers!</p>
+              <p>By the way, a cup of coffee would make my day 😎</p>
+            </div>
+            <ul class="payment-buttons-container">
+              <li>
+                <a class="payment-button" href="https://buymeacoffee.com/kairi003" target="_blank">
+                  <img src="images/bmc-logo.svg" alt="Buy Me a Coffee" />
+                </a>
+              </li>
+              <li>
+                <a class="payment-button" href="https://paypal.me/kairi003" target="_blank">
+                  <img src="images/paypal-logo.svg" alt="PayPal" />
+                </a>
+              </li>
+            </ul>
+          </details>
+        </div>
+      </section>
+
+      <section id="multiPanel" class="panel" role="tabpanel" hidden>
+        <div class="batch-toolbar">
+          <div class="site-search">
+            <span class="material-symbols-outlined">search</span>
+            <input id="siteSearch" type="search" placeholder="Filter sites" autocomplete="off" />
+          </div>
+          <button id="selectAll" class="tool-btn" title="Select all visible sites">All</button>
+          <button id="selectNone" class="tool-btn" title="Clear selection">None</button>
+          <button id="selectInvert" class="tool-btn" title="Invert selection">Invert</button>
+        </div>
+
+        <div class="selection-summary">
+          <span id="selectionText">0 of 0 sites selected</span>
+          <span id="cookieCountText">0 cookies</span>
+        </div>
+
+        <div id="siteList" class="site-list" role="group" aria-label="Sites with cookies"></div>
+
+        <div class="batch-options">
+          <div class="format-option option">
+            <label for="batchFormat">Export Format:</label>
+            <select id="batchFormat" name="batchFormat">
+              <option value="netscape" selected>Netscape</option>
+              <option value="json">JSON</option>
+              <option value="header">Header String</option>
+            </select>
+          </div>
+          <div class="mode-option option">
+            <label for="batchMode">Output:</label>
+            <select id="batchMode" name="batchMode">
+              <option value="zip" selected>ZIP · one file per site</option>
+              <option value="combined">Single merged file</option>
+              <option value="separate">Separate downloads</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="batch-actions">
+          <button id="batchCopy" class="export-btn copy">
+            <span class="button-text default-copy-text">
+              Copy merged
+              <span class="material-symbols-outlined">content_paste</span>
+            </span>
+            <span class="button-text copied-text">
+              Copied!
+              <span class="material-symbols-outlined">check</span>
+            </span>
+          </button>
+          <button id="batchExport" class="export-btn export" disabled>
+            <span class="button-text">
+              Export selected
+              <span class="material-symbols-outlined">download</span>
+            </span>
+          </button>
+        </div>
+
+        <p id="batchStatus" class="batch-status" role="status"></p>
+        <p class="batch-hint">
+          Sites are grouped by base domain, so every subdomain is included.
+          Cookies are read and packaged on this device only — nothing is uploaded.
+          Chrome may ask once for permission to download multiple files when using
+          separate downloads.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
