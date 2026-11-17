@@ -1,6 +1,6 @@
 {
   "name": "get-cookies.txt-locally-multiexport",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Local-only cookies.txt exporter with multi-site batch export",
   "devDependencies": {

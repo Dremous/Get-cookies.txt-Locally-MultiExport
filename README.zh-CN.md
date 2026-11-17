@@ -16,7 +16,7 @@
 | 列出所有存有 cookie 的网站 | — | ✅ 按基础域名聚合 |
 | 勾选多个网站一起导出 | — | ✅ |
 | 搜索 / 全选 / 反选 | — | ✅ |
-| 合并为一个文件 | — | ✅ |
+| 合并为一个文件 | — | ✅ 默认 |
 | 每站一个文件并打包 ZIP | — | ✅ 零依赖 ZIP 写入器 |
 | 逐站分别下载 | — | ✅ |
 | 记住上次勾选 | — | ✅ |
@@ -63,12 +63,13 @@ npm run build:firefox
    当前标签页对应的站点会带 `current` 标记。
 2. 用复选框逐个选择，或用 **All / None / Invert** 配合上方过滤框批量操作。
 3. 选择格式与输出方式：
+   - **Single merged file（默认）** —— 生成 `cookies_all_<站点数>sites_<日期>.<扩展名>`：所有勾选站点写进**同一个
+     文件**。Netscape 格式下就是一个 `cookies.txt`，按站点插入注释头，`wget`、`curl`、Python
+     `MozillaCookieJar` 都能正常解析。
    - **ZIP · one file per site** —— 生成 `cookies_<站点数>sites_<日期>.zip`，内含每个站点一个
      `<站点>_cookies_<日期>.<扩展名>`，另附 `_sites.txt` 清单。
-   - **Single merged file** —— 生成 `cookies_all_<站点数>sites_<日期>.<扩展名>`；Netscape 格式会按站点插入注释头，
-     `wget`、`curl`、Python `MozillaCookieJar` 都能正常解析。
    - **Separate downloads** —— 每个站点单独下载一个文件。
-4. 点击 **Export selected**，或 **Copy merged** 把合并后的文本复制到剪贴板。
+4. 点击 **Export merged file**，或 **Copy merged** 把合并后的文本复制到剪贴板。
 
 勾选结果保存在 `localStorage`，下次打开插件时自动恢复。
 

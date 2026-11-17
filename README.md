@@ -19,8 +19,8 @@ anywhere in the extension.
 | List all sites that have cookies | — | ✅ grouped by registrable domain |
 | Select many sites and export together | — | ✅ |
 | Search / select all / invert selection | — | ✅ |
-| Output as one merged file | — | ✅ |
-| Output as a ZIP with one file per site | — | ✅ zero-dependency ZIP writer |
+| Output as one merged file | — | ✅ default |
+| Output as a ZIP with one file per site | — | ✅ |
 | Output as separate downloads | — | ✅ |
 | Remember the last selection | — | ✅ |
 
@@ -67,12 +67,13 @@ The **Current Site** tab behaves exactly like upstream: it shows the cookies of 
    cookie count and a `current` badge for the active site.
 2. Pick sites individually, or use **All / None / Invert** together with the filter box.
 3. Choose the format and the output mode:
-   - **ZIP · one file per site** — `cookies_<n>sites_<yyyymmdd>.zip` containing one `<site>_cookies_<yyyymmdd>.<ext>` per
-     site plus a `_sites.txt` index.
-   - **Single merged file** — `cookies_all_<n>sites_<yyyymmdd>.<ext>`; the Netscape variant keeps a comment header per
-     site, so it stays valid for `wget`, `curl` and `MozillaCookieJar`.
+   - **Single merged file (default)** — `cookies_all_<n>sites_<yyyymmdd>.<ext>`: every selected site goes into **one
+     file**. With the Netscape format this is a single `cookies.txt` with one comment header per site, still valid for
+     `wget`, `curl` and `MozillaCookieJar`.
+   - **ZIP · one file per site** — `cookies_<n>sites_<yyyymmdd>.zip` containing one `<site>_cookies_<yyyymmdd>.<ext>`
+     per site plus a `_sites.txt` index.
    - **Separate downloads** — one download per site.
-4. Press **Export selected**, or **Copy merged** to put the merged text on the clipboard.
+4. Press **Export merged file**, or **Copy merged** to put the merged text on the clipboard.
 
 The selection is stored in `localStorage`, so reopening the popup keeps your previous choice.
 

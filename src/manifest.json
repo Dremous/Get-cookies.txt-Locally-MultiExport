@@ -1,7 +1,7 @@
 {
   "name": "Get cookies.txt LOCALLY (Multi-Site)",
   "description": "Export cookies.txt locally, including batch export for multiple sites at once",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "manifest_version": 3,
   "permissions": ["activeTab", "cookies", "downloads", "notifications"],
   "host_permissions": ["<all_urls>"],

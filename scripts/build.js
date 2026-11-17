@@ -21,13 +21,22 @@ const options = program
  */
 const getVersion = () => {
   try {
-    return execSync('git describe --tags', { cwd: ROOT, stdio: 'pipe' })
+    // Prefer a tag pointing exactly at HEAD; "git describe" would append
+    // "-<n>-g<sha>" for commits after the last tag.
+    const tags = execSync('git tag --points-at HEAD', {
+      cwd: ROOT,
+      stdio: 'pipe',
+    })
       .toString()
-      .trim();
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    if (tags.length) return tags[0];
   } catch {
-    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json')));
-    return `v${pkg.version}`;
+    // git may be unavailable in a source archive, fall through to package.json
   }
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json')));
+  return `v${pkg.version}`;
 };
 
 const build = async (version) => {

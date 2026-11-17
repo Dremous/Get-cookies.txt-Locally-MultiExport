@@ -26,7 +26,7 @@ const getUrlPromise = chrome.tabs
 
 const STORAGE_FORMAT = 'selectedFormat';
 const STORAGE_BATCH_FORMAT = 'batchFormat';
-const STORAGE_BATCH_MODE = 'batchMode';
+const STORAGE_BATCH_MODE = 'batchModeV2';
 const STORAGE_BATCH_SELECTION = 'batchSelection';
 
 // ----------------------------------------------
@@ -55,6 +55,7 @@ const el = {
   cookieCountText: document.querySelector('#cookieCountText'),
   siteCountBadge: document.querySelector('#siteCountBadge'),
   batchExport: document.querySelector('#batchExport'),
+  batchExportLabel: document.querySelector('#batchExportLabel'),
   batchCopy: document.querySelector('#batchCopy'),
   batchStatus: document.querySelector('#batchStatus'),
   tabSingle: document.querySelector('#tabSingle'),
@@ -384,8 +385,22 @@ const savedBatchMode = localStorage.getItem(STORAGE_BATCH_MODE);
 if (['zip', 'combined', 'separate'].includes(savedBatchMode ?? '')) {
   el.batchMode.value = savedBatchMode;
 }
+
+const MODE_BUTTON_LABELS = {
+  combined: 'Export merged file',
+  zip: 'Export ZIP',
+  separate: 'Export separate files',
+};
+
+const updateModeLabel = () => {
+  el.batchExportLabel.textContent =
+    MODE_BUTTON_LABELS[el.batchMode.value] ?? 'Export selected';
+};
+updateModeLabel();
+
 el.batchMode.addEventListener('change', () => {
   localStorage.setItem(STORAGE_BATCH_MODE, el.batchMode.value);
+  updateModeLabel();
 });
 
 el.siteSearch.addEventListener('input', renderSiteList);
@@ -478,7 +493,9 @@ el.batchExport.addEventListener('click', async () => {
     const mimeType = mode === 'zip' ? 'application/zip' : format.mimeType;
     await saveToFile(file.data, base, { ext, mimeType });
     setBatchStatus(
-      `Saved ${file.name} — ${groups.length} sites, ${totalCookies} cookies.`,
+      mode === 'combined'
+        ? `Saved ${file.name} — ${groups.length} sites combined into one file, ${totalCookies} cookies.`
+        : `Saved ${file.name} — ${groups.length} sites, ${totalCookies} cookies.`,
     );
   } catch (error) {
     setBatchStatus(`Export failed: ${error.message}`, 'error');
