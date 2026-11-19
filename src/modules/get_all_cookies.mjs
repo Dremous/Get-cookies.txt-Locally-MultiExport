@@ -1,6 +1,20 @@
 import { getTopLevelSite } from './site_group.mjs';
 
 /**
+ * `getPartitionKey()` reports whether the frame has a cross-site ancestor as
+ * part of the key. That flag is an exact filter in `chrome.cookies.getAll()`,
+ * but a top-level frame always reports `false`; passing it through would hide
+ * cookies set by third-party frames under the same top-level site. Read
+ * queries only need the top-level site.
+ * @param {chrome.cookies.CookiePartitionKey | undefined} partitionKey
+ * @returns {chrome.cookies.CookiePartitionKey | null}
+ */
+const toQueryPartitionKey = (partitionKey) => {
+  if (!partitionKey?.topLevelSite) return null;
+  return { topLevelSite: partitionKey.topLevelSite };
+};
+
+/**
  * Get all cookies that match the given criteria.
  * @param {chrome.cookies.GetAllDetails} details
  * @returns {Promise<chrome.cookies.Cookie[]>}
@@ -8,12 +22,22 @@ import { getTopLevelSite } from './site_group.mjs';
 export default async function getAllCookies(details) {
   details.storeId ??= await getCurrentCookieStoreId();
   const { partitionKey, ...detailsWithoutPartitionKey } = details;
+  const queryPartitionKey = toQueryPartitionKey(partitionKey);
+
   // Error handling for browsers that do not support partitionKey, such as chrome < 119.
   // `chrome.cookies.getAll()` returns Promise but cannot directly catch() chain.
-  const cookiesWithPartitionKey = partitionKey
+  const cookiesWithPartitionKey = queryPartitionKey
     ? await Promise.resolve()
-        .then(() => chrome.cookies.getAll(details))
-        .catch(() => [])
+        .then(() =>
+          chrome.cookies.getAll({
+            ...detailsWithoutPartitionKey,
+            partitionKey: queryPartitionKey,
+          }),
+        )
+        .catch((error) => {
+          console.warn('[cookies] partitioned getAll failed', error);
+          return [];
+        })
     : [];
   const cookies = await chrome.cookies.getAll(detailsWithoutPartitionKey);
   return [...cookies, ...cookiesWithPartitionKey];
@@ -75,13 +99,16 @@ export const dedupeCookies = (cookies) => {
 /**
  * Get all cookies of the current cookie store, including partitioned cookies
  * belonging to the active tab (those are invisible to a bare getAll call).
+ * @param {chrome.tabs.Tab | undefined} [tab] Optional tab snapshot to avoid
+ *   racing with a second active-tab lookup.
  * @returns {Promise<chrome.cookies.Cookie[]>}
  */
-export async function getAllCookiesForBatch() {
+export async function getAllCookiesForBatch(tab) {
   const cookies = await getAllCookies({});
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const partitionKey = await getTabPartitionKey(tab);
+  const activeTab =
+    tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  const partitionKey = await getTabPartitionKey(activeTab);
   if (!partitionKey) return cookies;
 
   // Query by partition key only: `url` would restrict the result to the
@@ -100,6 +127,7 @@ const getCurrentCookieStoreId = async () => {
 
   // Firefox supports the `tab.cookieStoreId` property.
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return undefined;
   if (tab.cookieStoreId) return tab.cookieStoreId;
 
   // Chrome does not support the `tab.cookieStoreId` property.

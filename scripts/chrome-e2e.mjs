@@ -57,6 +57,14 @@ const findChromeBundle = () => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const dateStamp = () => {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+};
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const waitForDownload = async (downloadDir, matcher, timeoutMs = 20000) => {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -69,7 +77,11 @@ const waitForDownload = async (downloadDir, matcher, timeoutMs = 20000) => {
     }
     await sleep(200);
   }
-  throw new Error(`Download did not appear: ${matcher}`);
+  throw new Error(
+    `Download did not appear: ${matcher}; files: ${readdirSync(
+      downloadDir,
+    ).join(', ')}`,
+  );
 };
 
 const startServer = async () => {
@@ -140,6 +152,8 @@ const main = async () => {
     const sitePage = await browser.newPage();
     await sitePage.goto(`http://127.0.0.1:${serverInfo.port}/`);
     await sitePage.goto(`http://127.0.0.2:${serverInfo.port}/`);
+    await sitePage.goto(`http://127.0.0.1:${serverInfo.port}/`);
+    await sitePage.bringToFront();
 
     const popup = await browser.newPage();
     await popup.goto(popupUrl);
@@ -147,13 +161,66 @@ const main = async () => {
       () => document.querySelectorAll('.site-item').length >= 2,
       { timeout: 15000 },
     );
-    await popup.click('#tabMulti');
-    await popup.click('#selectAll');
-    await popup.select('#batchFormat', 'netscape');
-    await popup.select('#batchMode', 'combined');
 
-    await popup.click('#batchExport');
-    const merged = await waitForDownload(downloadDir, /\.txt$/);
+    // CHIPS probe: the cookie below is created under the top-level site
+    // 127.0.0.1 and gets hasCrossSiteAncestor=true. A getAll query that passes
+    // the full getPartitionKey() object (which includes false) would miss it.
+    const partitionCookie = await popup.evaluate(
+      async ({ port }) => {
+        const cookie = await chrome.cookies.set({
+          url: `https://127.0.0.2:${port}/`,
+          name: 'chip',
+          value: 'partitioned',
+          path: '/',
+          secure: true,
+          partitionKey: { topLevelSite: 'http://127.0.0.1' },
+        });
+        return cookie
+          ? { name: cookie.name, partitionKey: cookie.partitionKey }
+          : null;
+      },
+      { port: serverInfo.port },
+    );
+    if (!partitionCookie?.partitionKey) {
+      throw new Error('Could not create a partitioned test cookie.');
+    }
+
+    await sitePage.bringToFront();
+    const batchCookies = await popup.evaluate(async () => {
+      const { getAllCookiesForBatch } = await import(
+        './modules/get_all_cookies.mjs'
+      );
+      return getAllCookiesForBatch();
+    });
+    const chip = batchCookies.find((cookie) => cookie.name === 'chip');
+    if (!chip) {
+      throw new Error('Batch query did not include the partitioned cookie.');
+    }
+    console.log(
+      `CHIPS partition query OK: ${JSON.stringify(chip.partitionKey)}`,
+    );
+
+    await popup.evaluate(() => {
+      document.querySelector('#tabMulti').click();
+      document.querySelector('#selectAll').click();
+      const format = document.querySelector('#batchFormat');
+      format.value = 'netscape';
+      format.dispatchEvent(new Event('change', { bubbles: true }));
+      const mode = document.querySelector('#batchMode');
+      mode.value = 'combined';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await sitePage.bringToFront();
+    await popup.evaluate(() => document.querySelector('#batchExport').click());
+    const stamp = dateStamp();
+    const mergedName = `cookies_all_2sites_${stamp}.txt`;
+    const merged = await waitForDownload(
+      downloadDir,
+      new RegExp(`^${escapeRegex(mergedName)}$`),
+    );
+    if (path.basename(merged) !== mergedName) {
+      throw new Error(`Unexpected merged download name: ${merged}`);
+    }
     const text = readFileSync(merged, 'utf8');
     if (!/sid\t127\.0\.0\.1/.test(text) || !/sid\t127\.0\.0\.2/.test(text)) {
       throw new Error('Merged export does not contain both site cookies.');
@@ -163,9 +230,21 @@ const main = async () => {
     }
     console.log(`Chrome merged export OK: ${path.basename(merged)}`);
 
-    await popup.select('#batchMode', 'zip');
-    await popup.click('#batchExport');
-    const zipFile = await waitForDownload(downloadDir, /\.zip$/);
+    await popup.evaluate(() => {
+      const mode = document.querySelector('#batchMode');
+      mode.value = 'zip';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await sitePage.bringToFront();
+    await popup.evaluate(() => document.querySelector('#batchExport').click());
+    const zipName = `cookies_2sites_${stamp}.zip`;
+    const zipFile = await waitForDownload(
+      downloadDir,
+      new RegExp(`^${escapeRegex(zipName)}$`),
+    );
+    if (path.basename(zipFile) !== zipName) {
+      throw new Error(`Unexpected ZIP download name: ${zipFile}`);
+    }
     const listing = execFileSync('unzip', ['-l', zipFile], {
       encoding: 'utf8',
     });

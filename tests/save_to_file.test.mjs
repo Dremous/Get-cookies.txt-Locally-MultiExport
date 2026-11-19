@@ -101,3 +101,146 @@ test('saveToFile revokes the object URL when download() rejects', async () => {
     assert.equal(revoked.length, 1);
   });
 });
+
+test('saveToFile keeps the object URL alive when search is temporarily empty', async () => {
+  const listeners = new Set();
+  let listener;
+  const fake = {
+    download: async () => 42,
+    search: async () => [],
+    onChanged: {
+      addListener: (value) => {
+        listener = value;
+        listeners.add(value);
+      },
+      removeListener: (value) => listeners.delete(value),
+    },
+  };
+
+  await withDownloads(fake, async ({ revoked }) => {
+    await saveToFile('cookie=value', 'cookies', {
+      ext: '.txt',
+      mimeType: 'text/plain',
+    });
+    assert.equal(listeners.size, 1);
+    assert.equal(revoked.length, 0);
+
+    listener({ id: 42, state: { current: 'complete' } });
+    assert.equal(listeners.size, 0);
+    assert.equal(revoked.length, 1);
+  });
+});
+
+const withDocument = async (documentFake, fn) => {
+  const originalDocument = globalThis.document;
+  globalThis.document = documentFake;
+  try {
+    await fn();
+  } finally {
+    if (originalDocument === undefined) globalThis.document = undefined;
+    else globalThis.document = originalDocument;
+  }
+};
+
+test('saveToFile uses an anchor for Chrome blob filenames', async () => {
+  let createdListener;
+  let changedListener;
+  let clicked = false;
+  const anchor = {
+    href: '',
+    download: '',
+    rel: '',
+    style: {},
+    click: () => {
+      clicked = true;
+    },
+    remove: () => {},
+  };
+  const fake = {
+    download: async () => {
+      throw new Error('downloads.download should not run for normal exports');
+    },
+    onCreated: {
+      addListener: (listener) => {
+        createdListener = listener;
+      },
+      removeListener: (listener) => {
+        if (createdListener === listener) createdListener = undefined;
+      },
+    },
+    onChanged: {
+      addListener: (listener) => {
+        changedListener = listener;
+      },
+      removeListener: () => {},
+    },
+  };
+  const body = {
+    appendChild: () => {},
+  };
+  const documentFake = {
+    createElement: () => anchor,
+    body,
+  };
+
+  await withDownloads(fake, async ({ revoked }) => {
+    await withDocument(documentFake, async () => {
+      await saveToFile('cookie=value', 'cookies', {
+        ext: '.txt',
+        mimeType: 'text/plain',
+      });
+      assert.equal(anchor.download, 'cookies.txt');
+      assert.equal(anchor.href.startsWith('blob:'), true);
+      assert.equal(clicked, true);
+
+      createdListener({ id: 7, url: anchor.href });
+      changedListener({ id: 7, state: { current: 'complete' } });
+      assert.equal(revoked.length, 1);
+    });
+  });
+});
+test('saveToFile suggests the requested filename when Chrome ignores it', async () => {
+  let determineFilename;
+  let downloadDetails;
+  const suggestions = [];
+  const listeners = new Set();
+  const fake = {
+    download: async (details) => {
+      downloadDetails = details;
+      return 42;
+    },
+    search: async () => [{ id: 42, state: 'in_progress' }],
+    onChanged: {
+      addListener: (listener) => listeners.add(listener),
+      removeListener: (listener) => listeners.delete(listener),
+    },
+    onDeterminingFilename: {
+      addListener: (listener) => {
+        determineFilename = listener;
+      },
+    },
+  };
+
+  await withDownloads(fake, async ({ revoked }) => {
+    await saveToFile('cookie=value', 'cookies', {
+      ext: '.txt',
+      mimeType: 'text/plain',
+    });
+    assert.equal(typeof determineFilename, 'function');
+    assert.equal(listeners.size, 1);
+    assert.equal(revoked.length, 0);
+
+    determineFilename({ url: downloadDetails.url, id: 42 }, (value) => {
+      suggestions.push(value);
+    });
+    assert.deepEqual(suggestions[0], {
+      filename: 'cookies.txt',
+      conflictAction: 'uniquify',
+    });
+
+    for (const listener of listeners)
+      listener({ id: 42, state: { current: 'complete' } });
+    assert.equal(listeners.size, 0);
+    assert.equal(revoked.length, 1);
+  });
+});

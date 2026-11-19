@@ -143,6 +143,8 @@ tests/                  node:test suites
 - Netscape and Header formats cannot represent a partition key. JSON is the lossless format for CHIPS variants.
 - "Separate downloads" triggers one download per site; Chrome may ask once whether the extension may download multiple
   files.
+- Chrome normal downloads use an anchor `download` attribute so the requested filename is kept for blob URLs; "Export As"
+  still uses the downloads API for its save dialog.
 - The ZIP writer stores files without compression — cookie files are small and this keeps the code auditable.
 - Firefox support follows upstream (background page for saving files).
 - The Chrome and Firefox bundles include `LICENSE` so the MIT notice travels with the distributed code.

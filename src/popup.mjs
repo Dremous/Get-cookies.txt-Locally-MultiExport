@@ -15,25 +15,28 @@ import {
   toSiteList,
 } from './modules/site_group.mjs';
 
-/** Promise to get URL of Active Tab (null when the tab has no web URL) */
-const getUrlPromise = chrome.tabs
-  .query({ active: true, currentWindow: true })
-  .then(([tab]) => {
-    try {
-      return new URL(tab?.url);
-    } catch {
-      return null;
-    }
-  })
-  .catch(() => null);
-
 /**
- * Get the partition key for the active tab's top-level frame.
- * @returns {Promise<chrome.cookies.CookiePartitionKey | null>}
+ * Read the active tab, its URL and its partition key from one tab snapshot.
+ * Keeping these values together prevents an export from mixing a stale URL
+ * with a partition key taken from a different tab.
+ * @returns {Promise<{ tab: chrome.tabs.Tab | null, url: URL | null, partitionKey: chrome.cookies.CookiePartitionKey | null }>}
  */
-const getActiveTabPartitionKey = async () => {
+const getActiveTabSnapshot = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return getTabPartitionKey(tab);
+  if (!tab) return { tab: null, url: null, partitionKey: null };
+
+  let url = null;
+  try {
+    url = tab.url ? new URL(tab.url) : null;
+  } catch {
+    url = null;
+  }
+
+  return {
+    tab,
+    url,
+    partitionKey: await getTabPartitionKey(tab),
+  };
 };
 
 const STORAGE_FORMAT = 'selectedFormat';
@@ -253,10 +256,10 @@ const renderSiteList = () => {
  * Load all cookies of this store and build the site list.
  */
 const loadSites = async () => {
-  const url = await getUrlPromise;
-  currentSiteKey = url ? getSiteKey(url.hostname) : '';
+  const snapshot = await getActiveTabSnapshot();
+  currentSiteKey = snapshot.url ? getSiteKey(snapshot.url.hostname) : '';
 
-  const cookies = await getAllCookiesForBatch();
+  const cookies = await getAllCookiesForBatch(snapshot.tab);
   sites = toSiteList(groupCookiesBySite(cookies));
   // Alphabetical order, with the active site pinned to the top.
   sites.sort((a, b) => a.site.localeCompare(b.site));
@@ -294,38 +297,35 @@ const loadSites = async () => {
 // Actions after resolving the promise
 // ----------------------------------------------
 
-/** Set URL in the header */
-getUrlPromise.then((url) => {
+/** Populate the header and single-site cookie table from one tab snapshot. */
+const initializeSingleSite = async () => {
+  const { url, partitionKey } = await getActiveTabSnapshot();
   el.location.textContent = url?.href ?? 'this page';
   el.location.href = url?.href ?? '#';
-});
+  if (!url) {
+    document.querySelector('#netscapeTable tbody').replaceChildren();
+    return;
+  }
 
-/** Set Cookies data to the table */
-getUrlPromise
-  .then(async (url) => {
-    if (!url) return [];
-    const partitionKey = await getActiveTabPartitionKey();
-    const details = { url: url.href };
-    if (partitionKey) details.partitionKey = partitionKey;
-    return getAllCookies(details).catch(() => []);
-  })
-  .then((cookies) => {
-    const netscape = jsonToNetscapeMapper(cookies);
-    const tableRows = netscape.map((row) => {
-      const tr = document.createElement('tr');
-      tr.replaceChildren(
-        ...row.map((v) => {
-          const td = document.createElement('td');
-          td.textContent = v;
-          return td;
-        }),
-      );
-      return tr;
-    });
-    document
-      .querySelector('#netscapeTable tbody')
-      .replaceChildren(...tableRows);
+  const details = { url: url.href };
+  if (partitionKey) details.partitionKey = partitionKey;
+  const cookies = await getAllCookies(details).catch(() => []);
+  const netscape = jsonToNetscapeMapper(cookies);
+  const tableRows = netscape.map((row) => {
+    const tr = document.createElement('tr');
+    tr.replaceChildren(
+      ...row.map((v) => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        return td;
+      }),
+    );
+    return tr;
   });
+  document.querySelector('#netscapeTable tbody').replaceChildren(...tableRows);
+};
+
+initializeSingleSite().catch(() => {});
 
 // ----------------------------------------------
 // Tabs
@@ -351,9 +351,8 @@ el.tabMulti.addEventListener('click', () => activatePanel('multiPanel'));
 // ----------------------------------------------
 
 const getCurrentSiteDetails = async () => {
-  const url = await getUrlPromise;
+  const { url, partitionKey } = await getActiveTabSnapshot();
   if (!url) throw new Error('No active page URL');
-  const partitionKey = await getActiveTabPartitionKey();
   const details = { url: url.href };
   if (partitionKey) details.partitionKey = partitionKey;
   return { url, details };
@@ -394,7 +393,9 @@ document.querySelector('#copy').addEventListener('click', async () => {
 
 document.querySelector('#exportAll').addEventListener('click', async () => {
   try {
-    const { text, format } = await getCookieText({ partitionKey: {} });
+    const { partitionKey } = await getActiveTabSnapshot();
+    const details = partitionKey ? { partitionKey } : {};
+    const { text, format } = await getCookieText(details);
     await saveToFile(text, 'cookies', format);
     setSingleStatus(`Saved cookies${format.ext}`);
   } catch (error) {

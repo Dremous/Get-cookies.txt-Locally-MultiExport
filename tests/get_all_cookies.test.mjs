@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
+import getAllCookies, {
   dedupeCookies,
   getAllCookiesForBatch,
   getTabPartitionKey,
@@ -114,7 +114,10 @@ test('getAllCookiesForBatch queries partitioned cookies without a URL filter', a
     cookies: {
       getAllCookieStores: async () => [{ id: '0', tabIds: [7] }],
       getPartitionKey: async () => ({
-        partitionKey: { topLevelSite: 'https://example.com' },
+        partitionKey: {
+          topLevelSite: 'https://example.com',
+          hasCrossSiteAncestor: false,
+        },
       }),
       getAll: async (details) => {
         calls.push(details);
@@ -130,5 +133,60 @@ test('getAllCookiesForBatch queries partitioned cookies without a URL filter', a
     assert.deepEqual(calls[1].partitionKey, {
       topLevelSite: 'https://example.com',
     });
+  });
+});
+
+test('getAllCookies queries partition cookies without the ancestor flag', async () => {
+  const calls = [];
+  const plain = { ...baseCookie, value: 'plain' };
+  const partitionedCookie = partitioned('partitioned', true);
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: {
+      query: async () => [{ id: 7, url: 'https://www.example.com/page' }],
+    },
+    cookies: {
+      getAllCookieStores: async () => [{ id: '0', tabIds: [7] }],
+      getAll: async (details) => {
+        calls.push(details);
+        return details.partitionKey ? [partitionedCookie] : [plain];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    const result = await getAllCookies({
+      partitionKey: {
+        topLevelSite: 'https://example.com',
+        hasCrossSiteAncestor: false,
+      },
+    });
+
+    assert.equal(result.length, 2);
+    assert.deepEqual(calls[0].partitionKey, {
+      topLevelSite: 'https://example.com',
+    });
+    assert.equal(calls[0].url, undefined);
+  });
+});
+
+test('getAllCookies tolerates a missing active tab', async () => {
+  const calls = [];
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: { query: async () => [] },
+    cookies: {
+      getAllCookieStores: async () => [],
+      getAll: async (details) => {
+        calls.push(details);
+        return [];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    assert.deepEqual(await getAllCookies({}), []);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].storeId, undefined);
   });
 });
