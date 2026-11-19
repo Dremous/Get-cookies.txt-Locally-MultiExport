@@ -170,6 +170,28 @@ test('getAllCookies queries partition cookies without the ancestor flag', async 
   });
 });
 
+test('getAllCookies deduplicates overlapping plain and partitioned results', async () => {
+  const cookie = partitioned('same', false);
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: { query: async () => [] },
+    cookies: {
+      getAllCookieStores: async () => [],
+      getAll: async () => [cookie],
+    },
+  };
+
+  await withChrome(fake, async () => {
+    const result = await getAllCookies({
+      partitionKey: {
+        topLevelSite: 'https://example.com',
+        hasCrossSiteAncestor: false,
+      },
+    });
+    assert.equal(result.length, 1);
+  });
+});
+
 test('getAllCookies tolerates a missing active tab', async () => {
   const calls = [];
   const fake = {

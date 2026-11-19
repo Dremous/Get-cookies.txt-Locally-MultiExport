@@ -39,6 +39,16 @@ export const toSafeFileName = (site) => {
 };
 
 /**
+ * Base filename for a single-site export. Uses the same sanitization and
+ * UTF-8 truncation as batch exports so IPv6 hosts and very long hostnames
+ * cannot produce invalid or overlong download names.
+ * @param {string} hostname
+ * @returns {string}
+ */
+export const siteCookieBaseName = (hostname) =>
+  `${toSafeFileName(hostname)}_cookies`;
+
+/**
  * Ensure every file name in a batch is unique.
  * @param {string[]} names
  * @returns {string[]}

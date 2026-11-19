@@ -1,4 +1,4 @@
-import { base64ToBytes } from './modules/base64.mjs';
+import { createSaveMessageListener } from './modules/background_message.mjs';
 import getAllCookies, {
   getTabPartitionKey,
 } from './modules/get_all_cookies.mjs';
@@ -89,20 +89,7 @@ chrome.notifications.onButtonClicked.addListener(
   },
 );
 
-// TODO: use offscreen API to integrate implementation in chrome and firefox
-// Save file message listener for firefox
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-  const { type, target, data } = message || {};
-  if (target !== 'background') return;
-  if (type === 'save') {
-    const { text, base64, name, format, saveAs } = data || {};
-    if (typeof text !== 'string' && typeof base64 !== 'string') {
-      throw new Error('Missing save payload');
-    }
-    const content = typeof text === 'string' ? text : base64ToBytes(base64);
-    await saveToFile(content, name, format, saveAs);
-    sendResponse('done');
-    return true;
-  }
-  return true;
-});
+// Save file message listener for firefox.
+chrome.runtime.onMessage.addListener(
+  createSaveMessageListener({ saveFile: saveToFile }),
+);

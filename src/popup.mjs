@@ -2,8 +2,11 @@ import { bytesToBase64 } from './modules/base64.mjs';
 import {
   buildBatchExport,
   serializeCombined,
+  siteCookieBaseName,
 } from './modules/batch_export.mjs';
+import { writeClipboard } from './modules/clipboard.mjs';
 import { formatMap, jsonToNetscapeMapper } from './modules/cookie_format.mjs';
+import { createExportGuard } from './modules/export_guard.mjs';
 import getAllCookies, {
   getAllCookiesForBatch,
   getTabPartitionKey,
@@ -54,6 +57,7 @@ let sites = [];
 const selectedSites = new Set();
 /** @type {string} */
 let currentSiteKey = '';
+const exportGuard = createExportGuard();
 
 // ----------------------------------------------
 // DOM
@@ -118,11 +122,14 @@ const saveToFile = async (data, name, format, saveAs = false) => {
     };
     if (data instanceof Uint8Array) payload.base64 = bytesToBase64(data);
     else payload.text = data;
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: 'save',
       target: 'background',
       data: payload,
     });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Background save failed');
+    }
   } else {
     await _saveToFile(data, name, format, saveAs);
   }
@@ -145,7 +152,7 @@ const splitFileName = (fileName) => {
  * @param {HTMLElement} [button]
  */
 const setClipboard = async (text, button = document.querySelector('#copy')) => {
-  await navigator.clipboard.writeText(text);
+  await writeClipboard(text);
   if (!button) return;
   button.classList.add('copied');
   setTimeout(() => {
@@ -192,8 +199,8 @@ const updateSummary = () => {
   }`;
   el.cookieCountText.textContent = `${selectedCookieCount()} cookies`;
   el.siteCountBadge.textContent = `(${sites.length})`;
-  el.batchExport.disabled = selectedSites.size === 0;
-  el.batchCopy.disabled = selectedSites.size === 0;
+  el.batchExport.disabled = exportGuard.busy || selectedSites.size === 0;
+  el.batchCopy.disabled = exportGuard.busy || selectedSites.size === 0;
 };
 
 const renderSiteList = () => {
@@ -304,12 +311,13 @@ const initializeSingleSite = async () => {
   el.location.href = url?.href ?? '#';
   if (!url) {
     document.querySelector('#netscapeTable tbody').replaceChildren();
+    setSingleStatus('No active page URL.', 'error');
     return;
   }
 
   const details = { url: url.href };
   if (partitionKey) details.partitionKey = partitionKey;
-  const cookies = await getAllCookies(details).catch(() => []);
+  const cookies = await getAllCookies(details);
   const netscape = jsonToNetscapeMapper(cookies);
   const tableRows = netscape.map((row) => {
     const tr = document.createElement('tr');
@@ -325,26 +333,53 @@ const initializeSingleSite = async () => {
   document.querySelector('#netscapeTable tbody').replaceChildren(...tableRows);
 };
 
-initializeSingleSite().catch(() => {});
+initializeSingleSite().catch((error) => {
+  document.querySelector('#netscapeTable tbody').replaceChildren();
+  setSingleStatus(`Could not read cookies: ${error.message}`, 'error');
+});
 
 // ----------------------------------------------
 // Tabs
 // ----------------------------------------------
 
-const activatePanel = (panelId) => {
+const activatePanel = (panelId, focus = true) => {
   const isSingle = panelId === 'singlePanel';
   el.tabSingle.classList.toggle('active', isSingle);
   el.tabMulti.classList.toggle('active', !isSingle);
   el.tabSingle.setAttribute('aria-selected', String(isSingle));
   el.tabMulti.setAttribute('aria-selected', String(!isSingle));
+  el.tabSingle.tabIndex = isSingle ? 0 : -1;
+  el.tabMulti.tabIndex = isSingle ? -1 : 0;
   el.panelSingle.hidden = !isSingle;
   el.panelMulti.hidden = isSingle;
-  if (isSingle) el.tabSingle.focus();
-  else el.tabMulti.focus();
+  if (focus) {
+    if (isSingle) el.tabSingle.focus();
+    else el.tabMulti.focus();
+  }
+};
+
+const handleTabKeydown = (event) => {
+  const isSingle = el.tabSingle.getAttribute('aria-selected') === 'true';
+  let nextPanel = null;
+
+  if (event.key === 'ArrowLeft' || event.key === 'Home') {
+    nextPanel = 'singlePanel';
+  } else if (event.key === 'ArrowRight' || event.key === 'End') {
+    nextPanel = 'multiPanel';
+  }
+
+  if (!nextPanel) return;
+  if (nextPanel === 'singlePanel' && isSingle) return;
+  if (nextPanel === 'multiPanel' && !isSingle) return;
+
+  event.preventDefault();
+  activatePanel(nextPanel);
 };
 
 el.tabSingle.addEventListener('click', () => activatePanel('singlePanel'));
 el.tabMulti.addEventListener('click', () => activatePanel('multiPanel'));
+el.tabSingle.addEventListener('keydown', handleTabKeydown);
+el.tabMulti.addEventListener('keydown', handleTabKeydown);
 
 // ----------------------------------------------
 // Event Listeners — single site
@@ -362,8 +397,9 @@ document.querySelector('#export').addEventListener('click', async () => {
   try {
     const { url, details } = await getCurrentSiteDetails();
     const { text, format } = await getCookieText(details);
-    await saveToFile(text, `${url.hostname}_cookies`, format);
-    setSingleStatus(`Saved ${url.hostname}_cookies${format.ext}`);
+    const base = siteCookieBaseName(url.hostname);
+    await saveToFile(text, base, format);
+    setSingleStatus(`Started export of ${base}${format.ext}`);
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
   }
@@ -373,8 +409,9 @@ document.querySelector('#exportAs').addEventListener('click', async () => {
   try {
     const { url, details } = await getCurrentSiteDetails();
     const { text, format } = await getCookieText(details);
-    await saveToFile(text, `${url.hostname}_cookies`, format, true);
-    setSingleStatus(`Started export for ${url.hostname}_cookies${format.ext}`);
+    const base = siteCookieBaseName(url.hostname);
+    await saveToFile(text, base, format, true);
+    setSingleStatus(`Started export for ${base}${format.ext}`);
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
   }
@@ -397,7 +434,7 @@ document.querySelector('#exportAll').addEventListener('click', async () => {
     const details = partitionKey ? { partitionKey } : {};
     const { text, format } = await getCookieText(details);
     await saveToFile(text, 'cookies', format);
-    setSingleStatus(`Saved cookies${format.ext}`);
+    setSingleStatus(`Started export of cookies${format.ext}`);
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
   }
@@ -521,13 +558,14 @@ el.batchCopy.addEventListener('click', async () => {
 el.batchExport.addEventListener('click', async () => {
   const groups = getSelectedGroups();
   if (!groups.length) return;
+  if (!exportGuard.begin()) return;
 
   const formatKey = el.batchFormat.value;
   const mode = el.batchMode.value;
   const format = formatMap[formatKey];
   const date = new Date();
 
-  el.batchExport.disabled = true;
+  updateSummary();
   setBatchStatus('Packaging cookies…');
 
   try {
@@ -561,12 +599,13 @@ el.batchExport.addEventListener('click', async () => {
     await saveToFile(file.data, base, { ext, mimeType });
     setBatchStatus(
       mode === 'combined'
-        ? `Saved ${file.name} — ${groups.length} sites combined into one file, ${totalCookies} cookies.`
-        : `Saved ${file.name} — ${groups.length} sites, ${totalCookies} cookies.`,
+        ? `Started ${file.name} — ${groups.length} sites combined into one file, ${totalCookies} cookies.`
+        : `Started ${file.name} — ${groups.length} sites, ${totalCookies} cookies.`,
     );
   } catch (error) {
     setBatchStatus(`Export failed: ${error.message}`, 'error');
   } finally {
+    exportGuard.end();
     updateSummary();
   }
 });
@@ -576,5 +615,7 @@ el.batchExport.addEventListener('click', async () => {
 // ----------------------------------------------
 
 loadSites().catch((error) => {
-  setBatchStatus(`Could not read cookies: ${error.message}`, 'error');
+  const message = `Could not read cookies: ${error.message}`;
+  setBatchStatus(message, 'error');
+  setSingleStatus(message, 'error');
 });

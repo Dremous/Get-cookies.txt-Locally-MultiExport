@@ -251,7 +251,7 @@ const run = async () => {
     await driver.findElement({ id: 'batchExport' }).click();
     await driver.wait(async () => {
       const status = await driver.findElement({ id: 'batchStatus' }).getText();
-      return status.includes('Saved');
+      return status.includes('Started');
     }, 15000);
     const combinedPath = await waitForDownload(
       downloadDir,
@@ -280,7 +280,7 @@ const run = async () => {
     await driver.findElement({ id: 'batchExport' }).click();
     await driver.wait(async () => {
       const status = await driver.findElement({ id: 'batchStatus' }).getText();
-      return status.includes('Saved');
+      return status.includes('Started');
     }, 15000);
     const zipPath = await waitForDownload(downloadDir, /^cookies_.*\.zip$/);
     const zip = readFileSync(zipPath);

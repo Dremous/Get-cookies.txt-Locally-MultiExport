@@ -17,6 +17,7 @@
 
 .tab {
   flex: 1;
+  min-height: 24px;
   padding: 4px 2px;
   border: none;
   background: transparent;
@@ -24,6 +25,11 @@
   font: inherit;
   font-size: 0.9rem;
   cursor: pointer;
+}
+
+.tab:focus-visible {
+  outline: 2px solid #3153ee;
+  outline-offset: 1px;
 }
 
 .tab:hover {
@@ -56,10 +62,16 @@
   flex: 1;
   display: flex;
   align-items: center;
+  min-height: 24px;
   padding: 2px 4px;
   border: 1px solid #767676;
   border-radius: 3px;
   background: #fff;
+}
+
+.site-search:focus-within {
+  outline: 2px solid #3153ee;
+  outline-offset: 1px;
 }
 
 .site-search input {
@@ -72,7 +84,9 @@
 }
 
 .tool-btn {
-  padding: 2px 6px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 4px 8px;
   border: 1px solid #767676;
   border-radius: 3px;
   background: #fff;
@@ -80,6 +94,11 @@
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+.tool-btn:focus-visible {
+  outline: 2px solid #3153ee;
+  outline-offset: 1px;
 }
 
 .tool-btn:hover {
@@ -111,11 +130,17 @@
 .site-item {
   display: flex;
   align-items: center;
+  min-height: 24px;
   gap: 6px;
   padding: 3px 5px;
   border-bottom: 1px solid #000;
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+.site-item:focus-within {
+  outline: 2px solid #3153ee;
+  outline-offset: -2px;
 }
 
 .site-item:last-child {
@@ -183,10 +208,6 @@
   color: #c0392b;
 }
 
-#singleStatus:empty {
-  display: none;
-}
-
 .batch-hint {
   margin: 0;
   color: #555;
@@ -212,6 +233,10 @@
     background: #3a3a3a;
   }
 
+  .site-search:focus-within {
+    outline-color: #e09200;
+  }
+
   .site-search input {
     color: #dfdfdf;
   }
@@ -220,6 +245,12 @@
     border-color: #555;
     background: #3a3a3a;
     color: #dfdfdf;
+  }
+
+  .tool-btn:focus-visible,
+  .tab:focus-visible,
+  .site-item:focus-within {
+    outline-color: #e09200;
   }
 
   .tool-btn:hover {

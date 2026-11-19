@@ -40,7 +40,7 @@ export default async function getAllCookies(details) {
         })
     : [];
   const cookies = await chrome.cookies.getAll(detailsWithoutPartitionKey);
-  return [...cookies, ...cookiesWithPartitionKey];
+  return dedupeCookies([...cookies, ...cookiesWithPartitionKey]);
 }
 
 /**

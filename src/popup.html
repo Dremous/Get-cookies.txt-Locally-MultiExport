@@ -1,7 +1,9 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Get cookies.txt LOCALLY</title>
     <link rel="stylesheet" href="popup.css" />
     <link rel="stylesheet" href="popup.dark.css" />
     <link rel="stylesheet" href="popup-options.css" />
@@ -15,7 +17,7 @@
   <body>
     <header>
       <h1>Get cookies.txt <span class="brand-tag">LOCALLY</span></h1>
-      <nav class="tab-bar" role="tablist">
+      <nav class="tab-bar" role="tablist" aria-label="Popup sections">
         <button
           id="tabSingle"
           class="tab active"
@@ -23,6 +25,7 @@
           aria-selected="true"
           aria-controls="singlePanel"
           data-panel="singlePanel"
+          tabindex="0"
         >
           Current Site
         </button>
@@ -33,18 +36,25 @@
           aria-selected="false"
           aria-controls="multiPanel"
           data-panel="multiPanel"
+          tabindex="-1"
         >
           Multiple Sites
-          <span id="siteCountBadge" class="tab-badge">(0)</span>
+          <span id="siteCountBadge" class="tab-badge" aria-live="polite">(0)</span>
         </button>
       </nav>
       <hr />
     </header>
 
     <main>
-      <section id="singlePanel" class="panel" role="tabpanel">
+      <section
+        id="singlePanel"
+        class="panel"
+        role="tabpanel"
+        aria-labelledby="tabSingle"
+        tabindex="0"
+      >
         <p class="current-url">
-          <span class="material-symbols-outlined">link</span>
+          <span class="material-symbols-outlined" aria-hidden="true">link</span>
           <a id="location"></a>
         </p>
 
@@ -52,29 +62,29 @@
           <button id="export" class="export-btn export">
             <span class="button-text">
               Export
-              <span class="material-symbols-outlined">download</span>
+              <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
           <button id="exportAs" class="export-btn export-as">
             <span class="button-text">
               Export As
-              <span class="material-symbols-outlined">download</span>
+              <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
           <button id="copy" class="export-btn copy">
             <span class="button-text default-copy-text">
               Copy
-              <span class="material-symbols-outlined">content_paste</span>
+              <span class="material-symbols-outlined" aria-hidden="true">content_paste</span>
             </span>
             <span class="button-text copied-text">
               Copied!
-              <span class="material-symbols-outlined">check</span>
+              <span class="material-symbols-outlined" aria-hidden="true">check</span>
             </span>
           </button>
           <button id="exportAll" class="export-btn large export-all">
             <span class="button-text">
               Export All Cookies
-              <span class="material-symbols-outlined">download</span>
+              <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
         </div>
@@ -99,15 +109,16 @@
 
         <div class="table-container">
           <table id="netscapeTable" class="netscape-table nowrap">
+            <caption class="visually-hidden">Cookies for the current site</caption>
             <thead>
               <tr>
-                <th>Domain</th>
-                <th>Include Subdomains</th>
-                <th>Path</th>
-                <th>Secure</th>
-                <th>Expiry</th>
-                <th>Name</th>
-                <th>Value</th>
+                <th scope="col">Domain</th>
+                <th scope="col">Include Subdomains</th>
+                <th scope="col">Path</th>
+                <th scope="col">Secure</th>
+                <th scope="col">Expiry</th>
+                <th scope="col">Name</th>
+                <th scope="col">Value</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -115,10 +126,23 @@
         </div>
       </section>
 
-      <section id="multiPanel" class="panel" role="tabpanel" hidden>
+      <section
+        id="multiPanel"
+        class="panel"
+        role="tabpanel"
+        aria-labelledby="tabMulti"
+        tabindex="0"
+        hidden
+      >
         <div class="batch-toolbar">
           <div class="site-search">
-            <input id="siteSearch" type="search" placeholder="Filter sites" autocomplete="off" />
+            <input
+              id="siteSearch"
+              type="search"
+              placeholder="Filter sites"
+              aria-label="Filter sites"
+              autocomplete="off"
+            />
           </div>
           <button id="selectAll" class="tool-btn" title="Select all visible sites">All</button>
           <button id="selectNone" class="tool-btn" title="Clear visible selection">None</button>
@@ -154,17 +178,17 @@
           <button id="batchCopy" class="export-btn copy">
             <span class="button-text default-copy-text">
               Copy merged
-              <span class="material-symbols-outlined">content_paste</span>
+              <span class="material-symbols-outlined" aria-hidden="true">content_paste</span>
             </span>
             <span class="button-text copied-text">
               Copied!
-              <span class="material-symbols-outlined">check</span>
+              <span class="material-symbols-outlined" aria-hidden="true">check</span>
             </span>
           </button>
           <button id="batchExport" class="export-btn export" disabled>
             <span class="button-text">
               <span id="batchExportLabel">Export merged file</span>
-              <span class="material-symbols-outlined">download</span>
+              <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
         </div>

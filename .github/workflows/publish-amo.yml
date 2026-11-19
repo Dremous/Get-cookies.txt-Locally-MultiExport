@@ -61,6 +61,10 @@ jobs:
             echo "::error::Missing AMO_API_KEY or AMO_API_SECRET repository secret."
             exit 1
           fi
+          if [[ ! "$WEB_EXT_API_KEY" =~ ^user:[0-9]+:[0-9]+$ ]]; then
+            echo "::error::AMO_API_KEY must be the JWT issuer (for example user:12345:67), not the JWT secret. See https://addons.mozilla.org/developers/addon/api/key/"
+            exit 1
+          fi
 
       - name: Submit listed version
         env:

@@ -8,6 +8,7 @@ import {
   buildBatchExport,
   buildBatchExportFromCookies,
   serializeCombined,
+  siteCookieBaseName,
   toSafeFileName,
 } from '../src/modules/batch_export.mjs';
 
@@ -39,6 +40,17 @@ test('toSafeFileName produces download-safe names', () => {
   assert.equal(toSafeFileName('例子.com'), '例子.com');
   assert.equal(toSafeFileName('测试.com'), '测试.com');
   assert.ok(Buffer.byteLength(toSafeFileName('中'.repeat(100))) <= 80);
+});
+
+test('siteCookieBaseName sanitizes hostnames for single-site exports', () => {
+  assert.equal(siteCookieBaseName('example.com'), 'example.com_cookies');
+  assert.equal(
+    siteCookieBaseName('bad:host/with spaces'),
+    'bad_host_with_spaces_cookies',
+  );
+  assert.equal(siteCookieBaseName('2001:db8::1'), '2001_db8_1_cookies');
+  assert.equal(siteCookieBaseName(''), 'site_cookies');
+  assert.ok(Buffer.byteLength(siteCookieBaseName('中'.repeat(100))) <= 88);
 });
 
 test('combined Netscape export lists every site and cookie row', () => {

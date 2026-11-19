@@ -133,12 +133,20 @@ const main = async () => {
     await extensionsPage.goto('chrome://extensions', {
       waitUntil: 'domcontentloaded',
     });
-    const workerTarget = await browser.waitForTarget(
-      (target) =>
-        target.type() === 'service_worker' &&
-        target.url().startsWith('chrome-extension://'),
-      { timeout: 15000 },
-    );
+    const workerTarget = await (async () => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const target = browser
+          .targets()
+          .find(
+            (candidate) =>
+              candidate.type() === 'service_worker' &&
+              candidate.url().startsWith('chrome-extension://'),
+          );
+        if (target) return target;
+        await sleep(150);
+      }
+      throw new Error('Extension service worker did not start.');
+    })();
     const extensionId = new URL(workerTarget.url()).host;
     const popupUrl = `chrome-extension://${extensionId}/popup.html`;
 
@@ -252,6 +260,58 @@ const main = async () => {
       throw new Error('ZIP export is missing expected entries.');
     }
     console.log(`Chrome ZIP export OK: ${path.basename(zipFile)}`);
+
+    // Single-site Export uses the active tab and the sanitized hostname base.
+    await sitePage.bringToFront();
+    await popup.evaluate(() => document.querySelector('#tabSingle').click());
+    await popup.evaluate(() => document.querySelector('#export').click());
+    const singleName = '127.0.0.1_cookies.txt';
+    const single = await waitForDownload(
+      downloadDir,
+      new RegExp(`^${escapeRegex(singleName)}$`),
+    );
+    const singleText = readFileSync(single, 'utf8');
+    if (!/sid\t127\.0\.0\.1/.test(singleText)) {
+      throw new Error(
+        'Single-site Export does not contain the active site cookie.',
+      );
+    }
+    console.log(`Chrome single-site Export OK: ${path.basename(single)}`);
+
+    // Export All Cookies has a fixed base name and includes every site.
+    await popup.evaluate(() => document.querySelector('#exportAll').click());
+    const allName = 'cookies.txt';
+    const all = await waitForDownload(
+      downloadDir,
+      new RegExp(`^${escapeRegex(allName)}$`),
+    );
+    const allText = readFileSync(all, 'utf8');
+    if (
+      !/sid\t127\.0\.0\.1/.test(allText) ||
+      !/sid\t127\.0\.0\.2/.test(allText)
+    ) {
+      throw new Error('Export All Cookies did not include both sites.');
+    }
+    console.log(`Chrome Export All Cookies OK: ${path.basename(all)}`);
+
+    // Separate downloads exercise the per-site filenames and the delay loop.
+    await sitePage.bringToFront();
+    await popup.evaluate(() => {
+      document.querySelector('#tabMulti').click();
+      document.querySelector('#selectAll').click();
+      const mode = document.querySelector('#batchMode');
+      mode.value = 'separate';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('#batchExport').click();
+    });
+    const separateNames = [
+      `127.0.0.1_cookies_${stamp}.txt`,
+      `127.0.0.2_cookies_${stamp}.txt`,
+    ];
+    for (const name of separateNames) {
+      await waitForDownload(downloadDir, new RegExp(`^${escapeRegex(name)}$`));
+    }
+    console.log(`Chrome separate downloads OK: ${separateNames.join(', ')}`);
   } finally {
     if (browser) await browser.close();
     serverInfo.server.close();

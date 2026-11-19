@@ -199,6 +199,39 @@ test('saveToFile uses an anchor for Chrome blob filenames', async () => {
     });
   });
 });
+test('saveToFile uses the downloads API for save-as', async () => {
+  let downloadDetails;
+  const listeners = new Set();
+  const fake = {
+    download: async (details) => {
+      downloadDetails = details;
+      return 42;
+    },
+    search: async () => [{ id: 42, state: 'in_progress' }],
+    onChanged: {
+      addListener: (listener) => listeners.add(listener),
+      removeListener: (listener) => listeners.delete(listener),
+    },
+  };
+
+  await withDownloads(fake, async ({ revoked }) => {
+    await saveToFile(
+      'cookie=value',
+      'cookies',
+      { ext: '.txt', mimeType: 'text/plain' },
+      true,
+    );
+    assert.equal(downloadDetails.filename, 'cookies.txt');
+    assert.equal(downloadDetails.saveAs, true);
+    assert.equal(revoked.length, 0);
+
+    for (const listener of listeners)
+      listener({ id: 42, state: { current: 'complete' } });
+    assert.equal(listeners.size, 0);
+    assert.equal(revoked.length, 1);
+  });
+});
+
 test('saveToFile suggests the requested filename when Chrome ignores it', async () => {
   let determineFilename;
   let downloadDetails;
