@@ -85,76 +85,42 @@ const readCookies = (driver) =>
     chrome.cookies.getAll({}, (cookies) => done(cookies));
   });
 
-const extensionBaseUrl = async (driver) => {
-  await driver.get('about:debugging#/runtime/this-firefox');
-  const manifestUrl = await driver.wait(async () => {
-    const links = await driver.findElements({
-      css: 'a[href^="moz-extension://"]',
-    });
-    for (const link of links) {
-      const href = await link.getAttribute('href');
-      if (href?.endsWith('/manifest.json')) return href;
-    }
-    return false;
-  }, 5000);
-  return manifestUrl.replace(/\/manifest\.json$/, '');
-};
-
-const grantHostPermission = async (driver) => {
-  await driver.get('about:addons');
-  await driver.wait(async () => {
-    return driver.executeScript(
-      () => document.querySelectorAll('button').length > 0,
+const prepareAddon = async (driver, addonId) => {
+  await driver.setContext('chrome');
+  try {
+    const host = await driver.executeScript(
+      'return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname;',
+      addonId,
     );
-  }, 5000);
+    if (!host) throw new Error('Could not resolve the add-on UUID.');
 
-  // `about:addons` uses open shadow DOM; WebDriver cannot address the inner
-  // toggle directly, so use the page's own DOM from a script.
-  const granted = await driver.executeScript(() => {
-    const extensionsTab = [...document.querySelectorAll('button')].find(
-      (button) => button.textContent.trim() === 'Extensions',
+    // Firefox MV3 host access is opt-in. about:addons is not navigable from
+    // WebDriver in current Firefox versions, so grant the manifest host
+    // permission through the same internal permission store the UI uses.
+    const granted = await driver.executeScript(
+      `
+      const id = arguments[0];
+      return (async () => {
+        const { ExtensionPermissions } = ChromeUtils.importESModule(
+          'resource://gre/modules/ExtensionPermissions.sys.mjs',
+        );
+        const policy = WebExtensionPolicy.getByID(id);
+        await ExtensionPermissions.add(
+          id,
+          { permissions: [], origins: ['<all_urls>'] },
+          policy.extension,
+        );
+        return 'ok';
+      })();
+    `,
+      addonId,
     );
-    if (!extensionsTab) return false;
-    extensionsTab.click();
-    return true;
-  });
-  if (!granted)
-    throw new Error('Could not open the Extensions tab in about:addons.');
-
-  await sleep(400);
-  await driver.executeScript(() => {
-    const link = [...document.querySelectorAll('a.addon-name-link')].find(
-      (item) => item.textContent.includes('Get cookies.txt LOCALLY'),
-    );
-    link?.click();
-  });
-  await sleep(400);
-
-  await driver.executeScript(() => {
-    const permissionsTab = [...document.querySelectorAll('button')].find(
-      (button) => button.textContent.trim() === 'Permissions',
-    );
-    permissionsTab?.click();
-  });
-  await sleep(400);
-
-  const state = await driver.executeScript(() => {
-    const toggle =
-      [...document.querySelectorAll('moz-toggle')].find(
-        (item) => item.getAttribute('permission-key') === '<all_urls>',
-      ) || document.querySelector('moz-toggle#permission-0');
-    if (!toggle) return 'missing';
-    const button = toggle.shadowRoot?.querySelector('button');
-    if (!button) return 'missing';
-    if (button.getAttribute('aria-pressed') === 'true') return 'already';
-    button.click();
-    return 'clicked';
-  });
-  if (state === 'missing') {
-    throw new Error('Host permission toggle not found in about:addons.');
+    if (granted !== 'ok')
+      throw new Error('Could not grant the host permission.');
+    return `moz-extension://${host}`;
+  } finally {
+    await driver.setContext('content');
   }
-  await sleep(1000);
-  return state;
 };
 
 const waitForDownload = async (downloadDir, matcher, timeoutMs = 15000) => {
@@ -241,13 +207,7 @@ const run = async () => {
     await driver.get(`http://127.0.0.2:${port}/`);
     await sleep(200);
 
-    const baseUrl = await extensionBaseUrl(driver);
-    await driver.get(`${baseUrl}/popup.html`);
-    await sleep(300);
-    const before = await readCookies(driver);
-    console.log(`Cookies before host permission: ${before.length}`);
-
-    await grantHostPermission(driver);
+    const baseUrl = await prepareAddon(driver, addonId);
     await driver.get(`${baseUrl}/popup.html`);
     const after = await readCookies(driver);
     console.log(`Cookies after host permission: ${after.length}`);
