@@ -52,7 +52,7 @@ npm install
 npm run build:firefox
 ```
 
-Unzip `dist/get-cookies.txt-locally_v0.8.0_firefox.zip` and select its `manifest.json` via **Load Temporary Add-on**.
+Unzip `dist/get-cookies.txt-locally_v*_firefox.zip` and select its `manifest.json` via **Load Temporary Add-on**.
 
 ## Usage
 

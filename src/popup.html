@@ -194,7 +194,9 @@
         <p id="batchStatus" class="batch-status" role="status"></p>
         <p class="batch-hint">
           By default every selected site is written into one merged file.
-          Sites are grouped by base domain, so every subdomain is included.
+          Sites are grouped by registrable domain. Cookies are read from the
+          current cookie store; partitioned cookies of other top-level sites
+          cannot be enumerated through the API.
           Cookies are read and packaged on this device only — nothing is uploaded.
           Chrome may ask once for permission to download multiple files when using
           separate downloads.

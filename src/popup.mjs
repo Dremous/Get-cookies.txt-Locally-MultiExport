@@ -190,7 +190,7 @@ const renderSiteList = () => {
     empty.className = 'site-empty';
     empty.textContent = query
       ? 'No site matches this filter.'
-      : 'No cookies found in this browser profile.';
+      : 'No cookies found in this cookie store.';
     el.siteList.replaceChildren(empty);
     updateSummary();
     return;

@@ -38,7 +38,7 @@
 2. 打开 `chrome://extensions/`，开启「开发者模式」。
 3. 点击「加载已解压的扩展程序」，选择 `src` 目录。
 
-也可以直接使用 `dist/get-cookies.txt-locally_v0.8.0_chrome.zip` 解压后加载。
+也可以直接使用 `dist/get-cookies.txt-locally_v*_chrome.zip` 解压后加载。
 
 ### Firefox
 
@@ -47,7 +47,7 @@ npm install
 npm run build:firefox
 ```
 
-把 `dist/get-cookies.txt-locally_v0.8.0_firefox.zip` 解压到一个文件夹，打开
+把 `dist/get-cookies.txt-locally_v*_firefox.zip` 解压到一个文件夹，打开
 `about:debugging#/runtime/this-firefox`，选择「临时载入附加组件」，选中解压目录里的 `manifest.json`。
 
 ## 使用

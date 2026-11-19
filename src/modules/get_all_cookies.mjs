@@ -25,6 +25,7 @@ const cookieKey = (cookie) =>
   [
     cookie.storeId ?? '',
     cookie.partitionKey?.topLevelSite ?? '',
+    cookie.partitionKey?.hasCrossSiteAncestor ?? '',
     cookie.domain ?? '',
     cookie.path ?? '',
     cookie.name ?? '',
@@ -32,6 +33,7 @@ const cookieKey = (cookie) =>
 
 /**
  * Remove duplicate cookies (same store, partition, domain, path and name).
+ * Cookies that differ only by partition ancestry are distinct cookies.
  * @param {chrome.cookies.Cookie[]} cookies
  * @returns {chrome.cookies.Cookie[]}
  */

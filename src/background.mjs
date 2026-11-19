@@ -51,7 +51,7 @@ chrome.notifications.onButtonClicked.addListener(
       switch (buttonIndex) {
         case 0:
           chrome.tabs.create({
-            url: 'https://github.com/kairi003/Get-cookies.txt-LOCALLY/releases',
+            url: 'https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport/releases',
           });
           break;
         case 1:

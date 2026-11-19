@@ -23,6 +23,8 @@ jobs:
           cache: "npm"
       - name: Install dependencies
         run: npm ci
+      - name: Verify manifest and package versions
+        run: npm run check-version
       - name: Verify tag matches package version
         if: github.ref_type == 'tag'
         run: |
