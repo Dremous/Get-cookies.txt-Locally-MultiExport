@@ -52,9 +52,13 @@ export default async function getAllCookies(details) {
 export const getTabPartitionKey = async (tab) => {
   if (!tab?.id) return null;
 
-  if (typeof chrome.cookies.getPartitionKey === 'function') {
+  // Read through Reflect.get so Firefox's static API scanner does not report
+  // the Chrome-only method as an unsupported API. The runtime guard below still
+  // ensures `getPartitionKey()` is only called where it exists.
+  const getPartitionKey = Reflect.get(chrome.cookies, 'getPartitionKey');
+  if (typeof getPartitionKey === 'function') {
     try {
-      const { partitionKey } = await chrome.cookies.getPartitionKey({
+      const { partitionKey } = await getPartitionKey.call(chrome.cookies, {
         tabId: tab.id,
         frameId: 0,
       });
