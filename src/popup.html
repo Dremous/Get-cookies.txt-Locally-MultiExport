@@ -79,6 +79,8 @@
           </button>
         </div>
 
+        <p id="singleStatus" class="batch-status" role="status"></p>
+
         <div id="optionsContainer" class="option-container">
           <div class="format-option option">
             <label for="format">Export Format:</label>
@@ -141,7 +143,7 @@
             <input id="siteSearch" type="search" placeholder="Filter sites" autocomplete="off" />
           </div>
           <button id="selectAll" class="tool-btn" title="Select all visible sites">All</button>
-          <button id="selectNone" class="tool-btn" title="Clear selection">None</button>
+          <button id="selectNone" class="tool-btn" title="Clear visible selection">None</button>
           <button id="selectInvert" class="tool-btn" title="Invert selection">Invert</button>
         </div>
 
@@ -158,7 +160,6 @@
             <select id="batchFormat" name="batchFormat">
               <option value="netscape" selected>Netscape</option>
               <option value="json">JSON</option>
-              <option value="header">Header String</option>
             </select>
           </div>
           <div class="mode-option option">

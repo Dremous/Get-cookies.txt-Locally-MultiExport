@@ -36,6 +36,9 @@ test('toSafeFileName produces download-safe names', () => {
   assert.equal(toSafeFileName('example.com'), 'example.com');
   assert.equal(toSafeFileName('foo/bar baz'), 'foo_bar_baz');
   assert.equal(toSafeFileName(''), 'site');
+  assert.equal(toSafeFileName('例子.com'), '例子.com');
+  assert.equal(toSafeFileName('测试.com'), '测试.com');
+  assert.ok(Buffer.byteLength(toSafeFileName('中'.repeat(100))) <= 80);
 });
 
 test('combined Netscape export lists every site and cookie row', () => {
@@ -53,12 +56,21 @@ test('combined Netscape export lists every site and cookie row', () => {
   );
 });
 
-test('combined header export de-duplicates name/value pairs', () => {
+test('header export is limited to a single site', () => {
+  assert.throws(
+    () =>
+      serializeCombined(
+        [
+          { site: 'a.com', cookies: [cookie('.a.com', 'sid')] },
+          { site: 'b.com', cookies: [cookie('.b.com', 'sid')] },
+        ],
+        'header',
+      ),
+    /single site/,
+  );
+
   const text = serializeCombined(
-    [
-      { site: 'a.com', cookies: [cookie('.a.com', 'sid')] },
-      { site: 'b.com', cookies: [cookie('.b.com', 'sid')] },
-    ],
+    [{ site: 'a.com', cookies: [cookie('.a.com', 'sid')] }],
     'header',
   );
   assert.equal(text, 'sid=value-sid;');
@@ -139,6 +151,23 @@ test('separate mode returns one unique file per site', () => {
   assert.equal(files.length, 3);
   assert.equal(new Set(files.map((file) => file.name)).size, 3);
   assert.ok(files.every((file) => file.name.endsWith('.txt')));
+});
+
+test('separate mode keeps Unicode site names readable', () => {
+  const { files } = buildBatchExport({
+    groups: [
+      { site: '例子.com', cookies: [cookie('.例子.com', 'a')] },
+      { site: '测试.com', cookies: [cookie('.测试.com', 'b')] },
+    ],
+    formatKey: 'netscape',
+    mode: 'separate',
+    date: DATE,
+  });
+
+  assert.deepEqual(
+    files.map((file) => file.name),
+    ['例子.com_cookies_20261117.txt', '测试.com_cookies_20261117.txt'],
+  );
 });
 
 test('empty selection is rejected', () => {

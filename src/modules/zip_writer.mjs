@@ -106,7 +106,9 @@ export const createZip = (files, { date = new Date() } = {}) => {
     centralView.setUint16(32, 0, true); // comment length
     centralView.setUint16(34, 0, true); // disk number start
     centralView.setUint16(36, 0, true); // internal attributes
-    centralView.setUint32(38, 0, true); // external attributes
+    // Version made by is Unix, so the high 16 bits carry the file mode.
+    // Without this, Info-ZIP creates files with mode 000 on macOS/Linux.
+    centralView.setUint32(38, 0x81a40000, true); // external attributes: 0100644
     centralView.setUint32(42, offset, true); // local header offset
 
     centralChunks.push(centralHeader, nameBytes);

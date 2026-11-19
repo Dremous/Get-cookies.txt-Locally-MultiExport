@@ -1,3 +1,4 @@
+import { bytesToBase64 } from './modules/base64.mjs';
 import {
   buildBatchExport,
   serializeCombined,
@@ -22,7 +23,8 @@ const getUrlPromise = chrome.tabs
     } catch {
       return null;
     }
-  });
+  })
+  .catch(() => null);
 
 const STORAGE_FORMAT = 'selectedFormat';
 const STORAGE_BATCH_FORMAT = 'batchFormat';
@@ -58,6 +60,7 @@ const el = {
   batchExportLabel: document.querySelector('#batchExportLabel'),
   batchCopy: document.querySelector('#batchCopy'),
   batchStatus: document.querySelector('#batchStatus'),
+  singleStatus: document.querySelector('#singleStatus'),
   tabSingle: document.querySelector('#tabSingle'),
   tabMulti: document.querySelector('#tabMulti'),
   panelSingle: document.querySelector('#singlePanel'),
@@ -95,10 +98,13 @@ const saveToFile = async (data, name, format, saveAs = false) => {
   const isFirefox =
     chrome.runtime.getManifest().browser_specific_settings !== undefined;
   if (isFirefox) {
+    const payload = { name, format, saveAs };
+    if (data instanceof Uint8Array) payload.base64 = bytesToBase64(data);
+    else payload.text = data;
     await chrome.runtime.sendMessage({
       type: 'save',
       target: 'background',
-      data: { text: data, name, format, saveAs },
+      data: payload,
     });
   } else {
     await _saveToFile(data, name, format, saveAs);
@@ -134,6 +140,12 @@ const setClipboard = async (text, button = document.querySelector('#copy')) => {
 const setBatchStatus = (message, kind = 'info') => {
   el.batchStatus.textContent = message;
   el.batchStatus.dataset.kind = kind;
+};
+
+/** @param {string} message @param {'info' | 'error'} [kind] */
+const setSingleStatus = (message, kind = 'info') => {
+  el.singleStatus.textContent = message;
+  el.singleStatus.dataset.kind = kind;
 };
 
 const persistSelection = () => {
@@ -325,33 +337,56 @@ el.tabMulti.addEventListener('click', () => activatePanel('multiPanel'));
 // Event Listeners — single site
 // ----------------------------------------------
 
-document.querySelector('#export').addEventListener('click', async () => {
+const getCurrentSiteDetails = async () => {
   const url = await getUrlPromise;
-  if (!url) return;
-  const details = { url: url.href, partitionKey: { topLevelSite: url.origin } };
-  const { text, format } = await getCookieText(details);
-  saveToFile(text, `${url.hostname}_cookies`, format);
+  if (!url) throw new Error('No active page URL');
+  return {
+    url,
+    details: { url: url.href, partitionKey: { topLevelSite: url.origin } },
+  };
+};
+
+document.querySelector('#export').addEventListener('click', async () => {
+  try {
+    const { url, details } = await getCurrentSiteDetails();
+    const { text, format } = await getCookieText(details);
+    await saveToFile(text, `${url.hostname}_cookies`, format);
+    setSingleStatus(`Saved ${url.hostname}_cookies${format.ext}`);
+  } catch (error) {
+    setSingleStatus(`Export failed: ${error.message}`, 'error');
+  }
 });
 
 document.querySelector('#exportAs').addEventListener('click', async () => {
-  const url = await getUrlPromise;
-  if (!url) return;
-  const details = { url: url.href, partitionKey: { topLevelSite: url.origin } };
-  const { text, format } = await getCookieText(details);
-  saveToFile(text, `${url.hostname}_cookies`, format, true);
+  try {
+    const { url, details } = await getCurrentSiteDetails();
+    const { text, format } = await getCookieText(details);
+    await saveToFile(text, `${url.hostname}_cookies`, format, true);
+    setSingleStatus(`Started export for ${url.hostname}_cookies${format.ext}`);
+  } catch (error) {
+    setSingleStatus(`Export failed: ${error.message}`, 'error');
+  }
 });
 
 document.querySelector('#copy').addEventListener('click', async () => {
-  const url = await getUrlPromise;
-  if (!url) return;
-  const details = { url: url.href, partitionKey: { topLevelSite: url.origin } };
-  const { text } = await getCookieText(details);
-  setClipboard(text, document.querySelector('#copy'));
+  try {
+    const { details } = await getCurrentSiteDetails();
+    const { text } = await getCookieText(details);
+    await setClipboard(text, document.querySelector('#copy'));
+    setSingleStatus('Copied current site cookies.');
+  } catch (error) {
+    setSingleStatus(`Copy failed: ${error.message}`, 'error');
+  }
 });
 
 document.querySelector('#exportAll').addEventListener('click', async () => {
-  const { text, format } = await getCookieText({ partitionKey: {} });
-  saveToFile(text, 'cookies', format);
+  try {
+    const { text, format } = await getCookieText({ partitionKey: {} });
+    await saveToFile(text, 'cookies', format);
+    setSingleStatus(`Saved cookies${format.ext}`);
+  } catch (error) {
+    setSingleStatus(`Export failed: ${error.message}`, 'error');
+  }
 });
 
 /** Set last used format value */
@@ -361,8 +396,10 @@ if (selectedFormat && formatMap[selectedFormat]) {
 }
 el.format.addEventListener('change', () => {
   localStorage.setItem(STORAGE_FORMAT, el.format.value);
-  el.batchFormat.value = el.format.value;
-  localStorage.setItem(STORAGE_BATCH_FORMAT, el.format.value);
+  const batchValue =
+    el.format.value === 'header' ? 'netscape' : el.format.value;
+  el.batchFormat.value = batchValue;
+  localStorage.setItem(STORAGE_BATCH_FORMAT, batchValue);
 });
 
 // ----------------------------------------------
@@ -370,10 +407,15 @@ el.format.addEventListener('change', () => {
 // ----------------------------------------------
 
 const savedBatchFormat = localStorage.getItem(STORAGE_BATCH_FORMAT);
-if (savedBatchFormat && formatMap[savedBatchFormat]) {
+if (
+  savedBatchFormat &&
+  savedBatchFormat !== 'header' &&
+  formatMap[savedBatchFormat]
+) {
   el.batchFormat.value = savedBatchFormat;
 } else {
-  el.batchFormat.value = el.format.value;
+  el.batchFormat.value =
+    el.format.value === 'header' ? 'netscape' : el.format.value;
 }
 el.batchFormat.addEventListener('change', () => {
   localStorage.setItem(STORAGE_BATCH_FORMAT, el.batchFormat.value);
@@ -420,7 +462,11 @@ document.querySelector('#selectAll').addEventListener('click', () => {
 });
 
 document.querySelector('#selectNone').addEventListener('click', () => {
-  selectedSites.clear();
+  const query = el.siteSearch.value.trim().toLowerCase();
+  for (const entry of sites) {
+    if (!entry.site.toLowerCase().includes(query)) continue;
+    selectedSites.delete(entry.site);
+  }
   persistSelection();
   renderSiteList();
 });
@@ -442,13 +488,20 @@ const getSelectedGroups = () =>
     .map((entry) => ({ site: entry.site, cookies: entry.cookies }));
 
 el.batchCopy.addEventListener('click', async () => {
-  const groups = getSelectedGroups();
-  if (!groups.length) return;
-  const text = serializeCombined(groups, el.batchFormat.value);
-  await setClipboard(text, el.batchCopy);
-  setBatchStatus(
-    `Copied ${groups.length} site(s) as ${el.batchFormat.value} text.`,
-  );
+  try {
+    const groups = getSelectedGroups();
+    if (!groups.length) {
+      setBatchStatus('Select at least one site first.', 'error');
+      return;
+    }
+    const text = serializeCombined(groups, el.batchFormat.value);
+    await setClipboard(text, el.batchCopy);
+    setBatchStatus(
+      `Copied ${groups.length} site(s) as ${el.batchFormat.value} text.`,
+    );
+  } catch (error) {
+    setBatchStatus(`Copy failed: ${error.message}`, 'error');
+  }
 });
 
 el.batchExport.addEventListener('click', async () => {

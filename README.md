@@ -82,8 +82,8 @@ The selection is stored in `localStorage`, so reopening the popup keeps your pre
 - **Netscape** — the `cookies.txt` format accepted by `wget --load-cookies`, `curl -b`, Python `MozillaCookieJar` and
   yt-dlp.
 - **JSON** — the raw `chrome.cookies.Cookie` array.
-- **Header String** — `name=value; name=value;`, ready to paste into a `Cookie` request header. A single header cannot
-  address multiple domains, so merged header output de-duplicates the name/value pairs.
+- **Header String** — `name=value; name=value;`, ready to paste into a `Cookie` request header. This format is
+  single-site only; the multi-site panel does not offer it because one header cannot represent multiple domains.
 
 ## Permissions
 

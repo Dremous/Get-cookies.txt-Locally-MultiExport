@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -34,6 +40,12 @@ test('createZip writes an archive that unzip can verify and read', () => {
     content,
     '# Netscape HTTP Cookie File\n.example.com\ttrue\t/\tTRUE\t0\tsid\tabc\n',
   );
+
+  const extracted = path.join(dir, 'extracted');
+  mkdirSync(extracted);
+  execFileSync('unzip', ['-q', archivePath, '-d', extracted]);
+  const mode = statSync(path.join(extracted, 'example.com_cookies.txt')).mode;
+  assert.equal(mode & 0o777, 0o644);
 
   execFileSync('unzip', ['-t', archivePath]);
   rmSync(dir, { recursive: true, force: true });

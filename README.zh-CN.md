@@ -77,8 +77,8 @@ npm run build:firefox
 
 - **Netscape** —— 标准 `cookies.txt`，适用于 `wget --load-cookies`、`curl -b`、`MozillaCookieJar`、yt-dlp 等。
 - **JSON** —— `chrome.cookies.Cookie` 原始对象数组。
-- **Header String** —— `name=value; name=value;`，可直接粘贴到 `Cookie` 请求头。单个请求头无法区分域名，
-  因此合并导出时会按 name/value 去重。
+- **Header String** —— `name=value; name=value;`，可直接粘贴到 `Cookie` 请求头。该格式仅支持单站点导出；
+  多站点面板不提供此选项，因为一个请求头无法区分多个域名。
 
 ## 权限
 

@@ -3,15 +3,38 @@ import { groupCookiesBySite, toSiteList } from './site_group.mjs';
 import { createZip } from './zip_writer.mjs';
 
 /** Characters that are unsafe in a download file name. */
-const UNSAFE_FILENAME_CHARS = /[^a-z0-9._-]+/gi;
+const UNSAFE_FILENAME_CHARS = /[/\\:*?"<>|\p{Cc}]+/gu;
+const MAX_SITE_FILE_NAME_BYTES = 80;
 
 /**
- * Make a site key usable as a file name.
+ * Keep the site part short enough that the final file name stays below the
+ * common 255-byte filesystem limit, even for multibyte site names.
+ * @param {string} value
+ * @returns {string}
+ */
+const truncateUtf8 = (value) => {
+  const encoder = new TextEncoder();
+  let result = '';
+  for (const char of value) {
+    const next = result + char;
+    if (encoder.encode(next).length > MAX_SITE_FILE_NAME_BYTES) break;
+    result = next;
+  }
+  return result;
+};
+
+/**
+ * Make a site key usable as a file name while keeping Unicode names readable.
  * @param {string} site
  * @returns {string}
  */
 export const toSafeFileName = (site) => {
-  const safe = site.replace(UNSAFE_FILENAME_CHARS, '_').replace(/^_+|_+$/g, '');
+  const safe = truncateUtf8(
+    site
+      .replace(UNSAFE_FILENAME_CHARS, '_')
+      .replace(/\s+/g, '_')
+      .replace(/^[._]+|[._]+$/g, ''),
+  );
   return safe || 'site';
 };
 
@@ -21,14 +44,23 @@ export const toSafeFileName = (site) => {
  * @returns {string[]}
  */
 const dedupeFileNames = (names) => {
-  const used = new Map();
+  const used = new Set();
   return names.map((name) => {
-    const count = (used.get(name) ?? 0) + 1;
-    used.set(name, count);
-    if (count === 1) return name;
+    if (!used.has(name)) {
+      used.add(name);
+      return name;
+    }
     const dot = name.lastIndexOf('.');
-    if (dot === -1) return `${name}_${count}`;
-    return `${name.slice(0, dot)}_${count}${name.slice(dot)}`;
+    const base = dot <= 0 ? name : name.slice(0, dot);
+    const ext = dot <= 0 ? '' : name.slice(dot);
+    let count = 2;
+    let candidate = `${base}_${count}${ext}`;
+    while (used.has(candidate)) {
+      count += 1;
+      candidate = `${base}_${count}${ext}`;
+    }
+    used.add(candidate);
+    return candidate;
   });
 };
 
@@ -62,14 +94,13 @@ export const serializeCombined = (groups, formatKey) => {
     return [...header, ...body].join('\n');
   }
   if (formatKey === 'header') {
-    // A single Cookie header cannot express two sites; de-duplicate pairs so
-    // the result stays syntactically valid.
-    const pairs = new Set();
-    for (const group of groups) {
-      for (const cookie of group.cookies) {
-        pairs.add(`${cookie.name}=${cookie.value}`);
-      }
+    // A single Cookie header cannot express more than one site.
+    if (groups.length !== 1) {
+      throw new Error('Header format can only represent a single site');
     }
+    const pairs = new Set(
+      groups[0].cookies.map((cookie) => `${cookie.name}=${cookie.value}`),
+    );
     return [...pairs].join('; ') + (pairs.size ? ';' : '');
   }
   // JSON: flat array keeps compatibility with tools expecting a cookie list.

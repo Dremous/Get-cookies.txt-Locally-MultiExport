@@ -1,3 +1,4 @@
+import { base64ToBytes } from './modules/base64.mjs';
 import getAllCookies from './modules/get_all_cookies.mjs';
 import saveToFile from './modules/save_to_file.mjs';
 
@@ -67,8 +68,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   const { type, target, data } = message || {};
   if (target !== 'background') return;
   if (type === 'save') {
-    const { text, name, format, saveAs } = data || {};
-    await saveToFile(text, name, format, saveAs);
+    const { text, base64, name, format, saveAs } = data || {};
+    if (typeof text !== 'string' && typeof base64 !== 'string') {
+      throw new Error('Missing save payload');
+    }
+    const content = typeof text === 'string' ? text : base64ToBytes(base64);
+    await saveToFile(content, name, format, saveAs);
     sendResponse('done');
     return true;
   }
