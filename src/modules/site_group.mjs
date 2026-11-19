@@ -83,6 +83,7 @@ const PUBLIC_SUFFIXES = new Set([
   's3.amazonaws.com',
   'vercel.app',
   'web.app',
+  'wixsite.com',
   'workers.dev',
 ]);
 
@@ -138,6 +139,26 @@ export const getSiteKey = (domain) => {
     }
   }
   return labels.slice(-2).join('.');
+};
+
+/**
+ * Get the schemeful site used by CHIPS partition keys.
+ *
+ * CHIPS keys cookies by the top-level site (scheme + registrable domain),
+ * not by the full origin, so ports and subdomains must be stripped.
+ * @param {string | URL | undefined} value
+ * @returns {string | null}
+ */
+export const getTopLevelSite = (value) => {
+  let url;
+  try {
+    url = value instanceof URL ? value : new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const site = getSiteKey(url.hostname);
+  return site ? `${url.protocol}//${site}` : null;
 };
 
 /**

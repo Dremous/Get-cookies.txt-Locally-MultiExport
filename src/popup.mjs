@@ -6,6 +6,7 @@ import {
 import { formatMap, jsonToNetscapeMapper } from './modules/cookie_format.mjs';
 import getAllCookies, {
   getAllCookiesForBatch,
+  getTabPartitionKey,
 } from './modules/get_all_cookies.mjs';
 import _saveToFile from './modules/save_to_file.mjs';
 import {
@@ -25,6 +26,15 @@ const getUrlPromise = chrome.tabs
     }
   })
   .catch(() => null);
+
+/**
+ * Get the partition key for the active tab's top-level frame.
+ * @returns {Promise<chrome.cookies.CookiePartitionKey | null>}
+ */
+const getActiveTabPartitionKey = async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return getTabPartitionKey(tab);
+};
 
 const STORAGE_FORMAT = 'selectedFormat';
 const STORAGE_BATCH_FORMAT = 'batchFormat';
@@ -98,7 +108,11 @@ const saveToFile = async (data, name, format, saveAs = false) => {
   const isFirefox =
     chrome.runtime.getManifest().browser_specific_settings !== undefined;
   if (isFirefox) {
-    const payload = { name, format, saveAs };
+    const payload = {
+      name,
+      format: { ext: format.ext, mimeType: format.mimeType },
+      saveAs,
+    };
     if (data instanceof Uint8Array) payload.base64 = bytesToBase64(data);
     else payload.text = data;
     await chrome.runtime.sendMessage({
@@ -288,14 +302,13 @@ getUrlPromise.then((url) => {
 
 /** Set Cookies data to the table */
 getUrlPromise
-  .then((url) =>
-    url
-      ? getAllCookies({
-          url: url.href,
-          partitionKey: { topLevelSite: url.origin },
-        }).catch(() => [])
-      : [],
-  )
+  .then(async (url) => {
+    if (!url) return [];
+    const partitionKey = await getActiveTabPartitionKey();
+    const details = { url: url.href };
+    if (partitionKey) details.partitionKey = partitionKey;
+    return getAllCookies(details).catch(() => []);
+  })
   .then((cookies) => {
     const netscape = jsonToNetscapeMapper(cookies);
     const tableRows = netscape.map((row) => {
@@ -340,10 +353,10 @@ el.tabMulti.addEventListener('click', () => activatePanel('multiPanel'));
 const getCurrentSiteDetails = async () => {
   const url = await getUrlPromise;
   if (!url) throw new Error('No active page URL');
-  return {
-    url,
-    details: { url: url.href, partitionKey: { topLevelSite: url.origin } },
-  };
+  const partitionKey = await getActiveTabPartitionKey();
+  const details = { url: url.href };
+  if (partitionKey) details.partitionKey = partitionKey;
+  return { url, details };
 };
 
 document.querySelector('#export').addEventListener('click', async () => {

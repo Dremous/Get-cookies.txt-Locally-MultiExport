@@ -27,8 +27,9 @@ anywhere in the extension.
 Sites are grouped by registrable domain: cookies from `example.com`, `www.example.com` and `api.example.com` land in a
 single `example.com` bucket. Two-label public suffixes such as `co.uk` or `com.cn` are handled, so
 `shop.example.co.uk` is grouped under `example.co.uk` rather than `co.uk`. Common private suffixes such as
-`github.io`, `vercel.app` and `s3.amazonaws.com` are also split, so `alice.github.io` and `bob.github.io` stay in
-separate buckets instead of collapsing into one `github.io` entry.
+`github.io`, `vercel.app`, `wixsite.com` and `s3.amazonaws.com` are also split, so `alice.github.io` and
+`bob.github.io` stay in separate buckets instead of collapsing into one `github.io` entry. The suffix table is a
+compact heuristic, not the full Public Suffix List; sites on less common shared hosts may still be grouped together.
 
 ## Install
 
@@ -85,10 +86,13 @@ The selection is stored in `localStorage`, so reopening the popup keeps your pre
 ## Formats
 
 - **Netscape** — the `cookies.txt` format accepted by `wget --load-cookies`, `curl -b`, Python `MozillaCookieJar` and
-  yt-dlp.
-- **JSON** — the raw `chrome.cookies.Cookie` array.
+  yt-dlp. `HttpOnly` cookies use the `#HttpOnly_` prefix. Netscape has no field for a CHIPS partition key: when two
+  variants share the same domain/path/name, the unpartitioned one is preferred and partitioned-only duplicates are
+  collapsed to one row.
+- **JSON** — the raw `chrome.cookies.Cookie` array, including `partitionKey` and every CHIPS variant.
 - **Header String** — `name=value; name=value;`, ready to paste into a `Cookie` request header. This format is
   single-site only; the multi-site panel does not offer it because one header cannot represent multiple domains.
+  Like Netscape it cannot encode a partition key, so the same collapse rule applies.
 
 ## Permissions
 
@@ -107,6 +111,8 @@ npm install
 npm test              # node:test unit tests (site grouping, ZIP writer, batch export)
 npm run check         # biome lint/format + version sync check
 npm run build         # dist/*_chrome.zip and dist/*_firefox.zip
+xvfb-run -a npm run test:chrome
+                      # Chrome/Chromium E2E for popup -> chrome.downloads (needs CHROME_BIN if not on PATH)
 FIREFOX_BIN=/path/to/firefox npm run test:firefox
                       # Firefox E2E for popup -> background -> downloads (needs Firefox 115+)
 ```
@@ -131,11 +137,15 @@ tests/                  node:test suites
 ## Notes and limits
 
 - Cookies are read from the current cookie store. Partitioned cookies of the active tab are included; partitioned
-  cookies belonging to *other* top-level sites are not enumerable through the API.
+  cookies belonging to *other* top-level sites are not enumerable through the API. The active tab's CHIPS key is
+  derived from its schemeful site (`scheme + registrable domain`) and, on Chrome 132+, from
+  `chrome.cookies.getPartitionKey`.
+- Netscape and Header formats cannot represent a partition key. JSON is the lossless format for CHIPS variants.
 - "Separate downloads" triggers one download per site; Chrome may ask once whether the extension may download multiple
   files.
 - The ZIP writer stores files without compression — cookie files are small and this keeps the code auditable.
 - Firefox support follows upstream (background page for saving files).
+- The Chrome and Firefox bundles include `LICENSE` so the MIT notice travels with the distributed code.
 
 ## License
 

@@ -1,6 +1,6 @@
 {
   "name": "get-cookies.txt-locally-multiexport",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "private": true,
   "description": "Local-only cookies.txt exporter with multi-site batch export",
   "devDependencies": {
@@ -13,6 +13,7 @@
     "icon-gen": "^5.0.0",
     "lefthook": "^1.11.3",
     "prettier": "^3.5.3",
+    "puppeteer-core": "^24.43.1",
     "selenium-webdriver": "^4.53.0"
   },
   "scripts": {
@@ -26,6 +27,7 @@
     "check-version": "node scripts/check-version.js",
     "sync-version": "node scripts/check-version.js --fix",
     "test": "node --test tests/*.test.mjs",
+    "test:chrome": "npm run build:chrome && node scripts/chrome-e2e.mjs",
     "test:firefox": "npm run build:firefox && node scripts/firefox-e2e.mjs"
   }
 }

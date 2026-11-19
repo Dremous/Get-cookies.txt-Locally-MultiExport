@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   getSiteKey,
+  getTopLevelSite,
   groupCookiesBySite,
   matchesSiteQuery,
   normalizeDomain,
@@ -39,6 +40,8 @@ test('getSiteKey separates tenants of private public suffixes', () => {
   assert.equal(getSiteKey('bob.github.io'), 'bob.github.io');
   assert.equal(getSiteKey('foo.vercel.app'), 'foo.vercel.app');
   assert.equal(getSiteKey('bar.vercel.app'), 'bar.vercel.app');
+  assert.equal(getSiteKey('alice.wixsite.com'), 'alice.wixsite.com');
+  assert.equal(getSiteKey('bob.wixsite.com'), 'bob.wixsite.com');
   assert.equal(
     getSiteKey('bucket.s3.amazonaws.com'),
     'bucket.s3.amazonaws.com',
@@ -107,6 +110,25 @@ test('toSiteList sorts sites alphabetically and exposes counts', () => {
   );
   assert.equal(list[0].cookieCount, 2);
   assert.equal(list[1].cookieCount, 1);
+});
+
+test('getTopLevelSite strips subdomains and ports for CHIPS keys', () => {
+  assert.equal(
+    getTopLevelSite('https://www.example.com/path'),
+    'https://example.com',
+  );
+  assert.equal(
+    getTopLevelSite('https://example.com:8443/path'),
+    'https://example.com',
+  );
+  assert.equal(getTopLevelSite('http://127.0.0.1:8080/'), 'http://127.0.0.1');
+  assert.equal(
+    getTopLevelSite('https://alice.github.io/page'),
+    'https://alice.github.io',
+  );
+  assert.equal(getTopLevelSite('file:///tmp/page.html'), null);
+  assert.equal(getTopLevelSite('chrome-extension://abc/popup.html'), null);
+  assert.equal(getTopLevelSite('not a url'), null);
 });
 
 test('matchesSiteQuery is case-insensitive and trims input', () => {

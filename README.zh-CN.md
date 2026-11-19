@@ -23,9 +23,9 @@
 
 站点按基础域名（registrable domain）聚合：`example.com`、`www.example.com`、`api.example.com` 的 cookie
 都会归到 `example.com` 一个条目；`co.uk`、`com.cn` 这类二级公共后缀也做了处理，所以
-`shop.example.co.uk` 会归到 `example.co.uk` 而不是 `co.uk`。`github.io`、`vercel.app`、
+`shop.example.co.uk` 会归到 `example.co.uk` 而不是 `co.uk`。`github.io`、`vercel.app`、`wixsite.com`、
 `s3.amazonaws.com` 等常见私有公共后缀同样会拆分，`alice.github.io` 和 `bob.github.io` 会保持为两个独立条目，
-不会合并成一个 `github.io`。
+不会合并成一个 `github.io`。这张后缀表是常见场景的启发式清单，不是完整 PSL；不常见的共享主站仍可能被合并。
 
 ## 安装
 
@@ -81,9 +81,11 @@ npm run build:firefox
 ## 格式说明
 
 - **Netscape** —— 标准 `cookies.txt`，适用于 `wget --load-cookies`、`curl -b`、`MozillaCookieJar`、yt-dlp 等。
-- **JSON** —— `chrome.cookies.Cookie` 原始对象数组。
+  `HttpOnly` cookie 使用 `#HttpOnly_` 前缀。Netscape 没有 CHIPS 分区键字段；同一 domain/path/name 的多个变体
+  会优先保留未分区版本，只有分区版本时合并为一行。
+- **JSON** —— `chrome.cookies.Cookie` 原始对象数组，保留 `partitionKey` 与全部 CHIPS 变体。
 - **Header String** —— `name=value; name=value;`，可直接粘贴到 `Cookie` 请求头。该格式仅支持单站点导出；
-  多站点面板不提供此选项，因为一个请求头无法区分多个域名。
+  多站点面板不提供此选项，因为一个请求头无法区分多个域名。与 Netscape 一样无法表示分区键，采用相同的合并规则。
 
 ## 权限
 
@@ -102,6 +104,8 @@ npm install
 npm test              # node:test 单元测试（域名聚合、ZIP 写入、批量导出）
 npm run check         # biome 检查 + 版本一致性
 npm run build         # 生成 dist/*_chrome.zip 与 dist/*_firefox.zip
+xvfb-run -a npm run test:chrome
+                      # Chrome/Chromium 保存链路 E2E（不在 PATH 时设置 CHROME_BIN）
 FIREFOX_BIN=/path/to/firefox npm run test:firefox
                       # Firefox 保存链路端到端测试（需要 Firefox 115+）
 ```
@@ -126,10 +130,13 @@ tests/                  node:test 测试
 ## 说明与限制
 
 - cookie 取自当前 cookie store；当前标签页所属顶级站点的分区 cookie（CHIPS）会被包含，其他顶级站点的分区
-  cookie 无法通过 API 枚举。
+  cookie 无法通过 API 枚举。当前标签页的 CHIPS 键按 schemeful site（协议 + 基础域名）计算；Chrome 132+
+  优先使用 `chrome.cookies.getPartitionKey`。
+- Netscape 与 Header 格式无法表示分区键；需要完整 CHIPS 变体时请使用 JSON。
 - 「Separate downloads」会逐站触发下载，Chrome 可能询问一次是否允许下载多个文件。
 - ZIP 采用不压缩存储 —— cookie 文件很小，这样代码更简单、可审计。
 - Firefox 支持沿用上游实现（由 background page 负责保存文件）。
+- Chrome / Firefox 发布包都会带 `LICENSE`，确保 MIT 许可声明随代码分发。
 
 ## 许可证
 

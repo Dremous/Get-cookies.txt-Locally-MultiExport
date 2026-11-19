@@ -7,6 +7,7 @@ pre-commit:
     sync-version:
       glob:
         - "package.json"
+        - "package-lock.json"
         - "src/manifest.json"
       run: npm run sync-version
       stage_fixed: true
@@ -19,5 +20,6 @@ pre-push:
     check-version:
       glob:
         - "package.json"
+        - "package-lock.json"
         - "src/manifest.json"
       run: npm run check-version

@@ -1,5 +1,7 @@
 import { base64ToBytes } from './modules/base64.mjs';
-import getAllCookies from './modules/get_all_cookies.mjs';
+import getAllCookies, {
+  getTabPartitionKey,
+} from './modules/get_all_cookies.mjs';
 import saveToFile from './modules/save_to_file.mjs';
 
 /**
@@ -16,10 +18,10 @@ const updateBadgeCounter = async () => {
     return;
   }
   const url = new URL(urlString);
-  const cookies = await getAllCookies({
-    url: url.href,
-    partitionKey: { topLevelSite: url.origin },
-  });
+  const partitionKey = await getTabPartitionKey(tab);
+  const details = { url: url.href };
+  if (partitionKey) details.partitionKey = partitionKey;
+  const cookies = await getAllCookies(details);
   const text = cookies.length.toFixed();
   chrome.action.setBadgeText({ tabId, text });
 };

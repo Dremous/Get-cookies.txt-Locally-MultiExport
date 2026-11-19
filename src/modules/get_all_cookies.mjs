@@ -1,3 +1,5 @@
+import { getTopLevelSite } from './site_group.mjs';
+
 /**
  * Get all cookies that match the given criteria.
  * @param {chrome.cookies.GetAllDetails} details
@@ -16,6 +18,31 @@ export default async function getAllCookies(details) {
   const cookies = await chrome.cookies.getAll(detailsWithoutPartitionKey);
   return [...cookies, ...cookiesWithPartitionKey];
 }
+
+/**
+ * Build the CHIPS partition key for a tab, preferring Chrome's own frame API
+ * when available. The fallback derives the schemeful site from the tab URL.
+ * @param {chrome.tabs.Tab | undefined} tab
+ * @returns {Promise<chrome.cookies.CookiePartitionKey | null>}
+ */
+export const getTabPartitionKey = async (tab) => {
+  if (!tab?.id) return null;
+
+  if (typeof chrome.cookies.getPartitionKey === 'function') {
+    try {
+      const { partitionKey } = await chrome.cookies.getPartitionKey({
+        tabId: tab.id,
+        frameId: 0,
+      });
+      if (partitionKey?.topLevelSite) return partitionKey;
+    } catch {
+      // Chrome before 132 has no getPartitionKey; fall back to the URL below.
+    }
+  }
+
+  const topLevelSite = getTopLevelSite(tab.url);
+  return topLevelSite ? { topLevelSite } : null;
+};
 
 /**
  * Fingerprint used to drop duplicates when merging cookie lists.
@@ -54,17 +81,12 @@ export async function getAllCookiesForBatch() {
   const cookies = await getAllCookies({});
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  let url;
-  try {
-    url = new URL(tab?.url);
-  } catch {
-    return cookies;
-  }
+  const partitionKey = await getTabPartitionKey(tab);
+  if (!partitionKey) return cookies;
 
-  const partitioned = await getAllCookies({
-    url: url.href,
-    partitionKey: { topLevelSite: url.origin },
-  });
+  // Query by partition key only: `url` would restrict the result to the
+  // top-level page's own domain and hide third-party partitioned cookies.
+  const partitioned = await getAllCookies({ partitionKey });
   return dedupeCookies([...cookies, ...partitioned]);
 }
 

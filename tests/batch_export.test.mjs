@@ -196,3 +196,44 @@ test('buildBatchExportFromCookies selects only requested sites', () => {
   assert.equal(totalCookies, 1);
   assert.doesNotMatch(files[0].data, /\.example\.com\t/);
 });
+
+test('text formats collapse partition variants and keep HttpOnly markers', () => {
+  const plain = cookie('.example.com', 'sid', { httpOnly: true });
+  const partitioned = cookie('.example.com', 'sid', {
+    value: 'partitioned-sid',
+    httpOnly: true,
+    partitionKey: { topLevelSite: 'https://example.com' },
+  });
+  const text = serializeCombined(
+    [{ site: 'example.com', cookies: [partitioned, plain] }],
+    'netscape',
+  );
+
+  assert.match(text, /#HttpOnly_\.example\.com\tTRUE/);
+  assert.match(text, /value-sid/);
+  assert.doesNotMatch(text, /partitioned-sid/);
+  assert.equal(
+    text.split('\n').filter((line) => line.includes('\t')).length,
+    1,
+  );
+});
+
+test('JSON keeps both partition variants', () => {
+  const plain = cookie('.example.com', 'sid');
+  const partitioned = cookie('.example.com', 'sid', {
+    value: 'partitioned-sid',
+    partitionKey: { topLevelSite: 'https://example.com' },
+  });
+  const parsed = JSON.parse(
+    serializeCombined(
+      [{ site: 'example.com', cookies: [plain, partitioned] }],
+      'json',
+    ),
+  );
+
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].partitionKey, undefined);
+  assert.deepEqual(parsed[1].partitionKey, {
+    topLevelSite: 'https://example.com',
+  });
+});

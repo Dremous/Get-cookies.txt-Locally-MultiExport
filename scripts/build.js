@@ -64,6 +64,7 @@ const build = async (version) => {
     Object.assign(manifest, manifestFirefox);
   }
   archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+  archive.file(path.join(ROOT, 'LICENSE'), { name: 'LICENSE' });
 
   await archive.finalize();
   console.log('BUILD', zipName);

@@ -1,4 +1,4 @@
-import { formatMap } from './cookie_format.mjs';
+import { collapsePartitionedCookies, formatMap } from './cookie_format.mjs';
 import { groupCookiesBySite, toSiteList } from './site_group.mjs';
 import { createZip } from './zip_writer.mjs';
 
@@ -88,7 +88,11 @@ export const serializeCombined = (groups, formatKey) => {
       ...format
         .serializer(group.cookies)
         .split('\n')
-        .filter((line) => !line.startsWith('#') && line !== ''),
+        .filter(
+          (line) =>
+            line !== '' &&
+            (!line.startsWith('#') || line.startsWith('#HttpOnly_')),
+        ),
       '',
     ]);
     return [...header, ...body].join('\n');
@@ -99,7 +103,9 @@ export const serializeCombined = (groups, formatKey) => {
       throw new Error('Header format can only represent a single site');
     }
     const pairs = new Set(
-      groups[0].cookies.map((cookie) => `${cookie.name}=${cookie.value}`),
+      collapsePartitionedCookies(groups[0].cookies).map(
+        (cookie) => `${cookie.name}=${cookie.value}`,
+      ),
     );
     return [...pairs].join('; ') + (pairs.size ? ';' : '');
   }
