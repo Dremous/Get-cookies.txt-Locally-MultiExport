@@ -2,6 +2,9 @@
 const pendingFileNames = new Map();
 let filenameListenerRegistered = false;
 
+const CLEANUP_TIMEOUT_MS = 5 * 60_000;
+const ANCHOR_CHECK_DELAY_MS = 1000;
+
 const supportsFilenameSuggestion = () =>
   typeof globalThis.chrome?.downloads?.onDeterminingFilename?.addListener ===
   'function';
@@ -62,6 +65,7 @@ export default async function saveToFile(
   let id;
   let cleanedUp = false;
   let cleanupTimer;
+  let anchorCheckTimer;
   let onCreated;
 
   /** @param {chrome.downloads.DownloadDelta} delta  */
@@ -75,12 +79,31 @@ export default async function saveToFile(
     if (cleanedUp) return;
     cleanedUp = true;
     if (cleanupTimer) clearTimeout(cleanupTimer);
+    if (anchorCheckTimer) clearTimeout(anchorCheckTimer);
     pendingFileNames.delete(url);
     if (onCreated) {
       chrome.downloads?.onCreated?.removeListener(onCreated);
     }
     chrome.downloads.onChanged.removeListener(onChange);
     URL.revokeObjectURL(url);
+  };
+
+  /**
+   * A very small anchor download can finish before onCreated/onChanged
+   * listeners are attached. Search once after the download is indexed; if it
+   * is already finished, revoke immediately instead of waiting for the
+   * fallback timer.
+   */
+  const checkAnchorDownloadState = async () => {
+    if (cleanedUp) return;
+    try {
+      if (typeof chrome.downloads?.search !== 'function') return;
+      const items = await chrome.downloads.search({});
+      const item = items.find((candidate) => candidate.url === url);
+      if (item && item.state !== 'in_progress') cleanup();
+    } catch {
+      // The event listener or fallback timer still covers cleanup.
+    }
   };
 
   if (canUseAnchorDownload(saveAs)) {
@@ -104,7 +127,11 @@ export default async function saveToFile(
     anchor.click();
     anchor.remove();
     if (!cleanedUp) {
-      cleanupTimer = setTimeout(cleanup, 60_000);
+      cleanupTimer = setTimeout(cleanup, CLEANUP_TIMEOUT_MS);
+      anchorCheckTimer = setTimeout(() => {
+        anchorCheckTimer = null;
+        void checkAnchorDownloadState();
+      }, ANCHOR_CHECK_DELAY_MS);
     }
     return;
   }
@@ -133,6 +160,6 @@ export default async function saveToFile(
   }
 
   if (!cleanedUp) {
-    cleanupTimer = setTimeout(cleanup, 60_000);
+    cleanupTimer = setTimeout(cleanup, CLEANUP_TIMEOUT_MS);
   }
 }

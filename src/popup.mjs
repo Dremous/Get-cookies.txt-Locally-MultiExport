@@ -47,6 +47,28 @@ const STORAGE_BATCH_FORMAT = 'batchFormat';
 const STORAGE_BATCH_MODE = 'batchModeV2';
 const STORAGE_BATCH_SELECTION = 'batchSelection';
 
+const isFirefox = () =>
+  chrome.runtime.getManifest().browser_specific_settings !== undefined;
+
+/**
+ * Firefox MV3 host access is opt-in. Chrome returns true immediately because
+ * the extension is already granted the manifest host permission there.
+ * @returns {Promise<boolean>}
+ */
+const hasHostPermission = async () => {
+  if (!isFirefox()) return true;
+  try {
+    if (typeof chrome.permissions?.contains !== 'function') return true;
+    return await chrome.permissions.contains({ origins: ['<all_urls>'] });
+  } catch {
+    return true;
+  }
+};
+
+/** @param {string} formatKey */
+const getFormat = (formatKey) =>
+  Object.hasOwn(formatMap, formatKey) ? formatMap[formatKey] : undefined;
+
 // ----------------------------------------------
 // State
 // ----------------------------------------------
@@ -57,6 +79,8 @@ let sites = [];
 const selectedSites = new Set();
 /** @type {string} */
 let currentSiteKey = '';
+/** @type {boolean} */
+let hostPermissionMissing = false;
 const exportGuard = createExportGuard();
 
 // ----------------------------------------------
@@ -92,17 +116,26 @@ const el = {
  * Get Stringified Cookies Text and Format Data
  * @param {chrome.cookies.GetAllDetails} details
  * @param {string} [formatKey]
- * @returns {Promise<{ text: string, format: Format }>}
+ * @returns {Promise<{ text: string, format: Format, warnings: unknown[] }>}
  */
 const getCookieText = async (details, formatKey = el.format.value) => {
-  const cookies = await getAllCookies(details);
-  const format = formatMap[formatKey];
+  const warnings = [];
+  const cookies = await getAllCookies(details, {
+    onPartitionError: (error) => warnings.push(error),
+  });
+  const format = getFormat(formatKey);
   if (!format) throw new Error('Invalid format');
   const text = format.serializer(cookies);
-  return { text, format };
+  return { text, format, warnings };
 };
 
-// TODO: use offscreen API to integrate implementation in chrome and firefox
+/**
+ * The warning shown after an export/copy when a partitioned query failed.
+ * @param {unknown[]} warnings
+ */
+const partitionWarningText = (warnings) =>
+  warnings.length ? ' Some partitioned cookies could not be read.' : '';
+
 /**
  * Save text or binary data as a file
  * Firefox cannot use saveAs in a popup, so the background script handles it.
@@ -112,9 +145,7 @@ const getCookieText = async (details, formatKey = el.format.value) => {
  * @param {boolean} saveAs
  */
 const saveToFile = async (data, name, format, saveAs = false) => {
-  const isFirefox =
-    chrome.runtime.getManifest().browser_specific_settings !== undefined;
-  if (isFirefox) {
+  if (isFirefox()) {
     const payload = {
       name,
       format: { ext: format.ext, mimeType: format.mimeType },
@@ -160,13 +191,13 @@ const setClipboard = async (text, button = document.querySelector('#copy')) => {
   }, 2000);
 };
 
-/** @param {string} message @param {'info' | 'error'} [kind] */
+/** @param {string} message @param {'info' | 'error' | 'warning'} [kind] */
 const setBatchStatus = (message, kind = 'info') => {
   el.batchStatus.textContent = message;
   el.batchStatus.dataset.kind = kind;
 };
 
-/** @param {string} message @param {'info' | 'error'} [kind] */
+/** @param {string} message @param {'info' | 'error' | 'warning'} [kind] */
 const setSingleStatus = (message, kind = 'info') => {
   el.singleStatus.textContent = message;
   el.singleStatus.dataset.kind = kind;
@@ -212,9 +243,14 @@ const renderSiteList = () => {
   if (!visible.length) {
     const empty = document.createElement('p');
     empty.className = 'site-empty';
-    empty.textContent = query
-      ? 'No site matches this filter.'
-      : 'No cookies found in this cookie store.';
+    if (query) {
+      empty.textContent = 'No site matches this filter.';
+    } else if (hostPermissionMissing) {
+      empty.textContent =
+        'Firefox has not granted access to all websites. Open about:addons, open Permissions, and enable "Access your data for all websites". Reopen this popup after granting access.';
+    } else {
+      empty.textContent = 'No cookies found in this cookie store.';
+    }
     el.siteList.replaceChildren(empty);
     updateSummary();
     return;
@@ -263,10 +299,24 @@ const renderSiteList = () => {
  * Load all cookies of this store and build the site list.
  */
 const loadSites = async () => {
+  hostPermissionMissing = !(await hasHostPermission());
+  if (hostPermissionMissing) {
+    sites = [];
+    renderSiteList();
+    setBatchStatus(
+      'Firefox host permission is required. See the site list instructions.',
+      'warning',
+    );
+    return;
+  }
+
   const snapshot = await getActiveTabSnapshot();
   currentSiteKey = snapshot.url ? getSiteKey(snapshot.url.hostname) : '';
 
-  const cookies = await getAllCookiesForBatch(snapshot.tab);
+  const warnings = [];
+  const cookies = await getAllCookiesForBatch(snapshot.tab, {
+    onPartitionError: (error) => warnings.push(error),
+  });
   sites = toSiteList(groupCookiesBySite(cookies));
   // Alphabetical order, with the active site pinned to the top.
   sites.sort((a, b) => a.site.localeCompare(b.site));
@@ -298,6 +348,12 @@ const loadSites = async () => {
   }
 
   renderSiteList();
+  if (warnings.length) {
+    setBatchStatus(
+      'Some partitioned cookies could not be read; the site list may be incomplete.',
+      'warning',
+    );
+  }
 };
 
 // ----------------------------------------------
@@ -306,6 +362,16 @@ const loadSites = async () => {
 
 /** Populate the header and single-site cookie table from one tab snapshot. */
 const initializeSingleSite = async () => {
+  hostPermissionMissing = !(await hasHostPermission());
+  if (hostPermissionMissing) {
+    document.querySelector('#netscapeTable tbody').replaceChildren();
+    setSingleStatus(
+      'Firefox host permission is required. Open about:addons, open Permissions, and enable "Access your data for all websites", then reopen this popup.',
+      'warning',
+    );
+    return;
+  }
+
   const { url, partitionKey } = await getActiveTabSnapshot();
   el.location.textContent = url?.href ?? 'this page';
   el.location.href = url?.href ?? '#';
@@ -315,9 +381,12 @@ const initializeSingleSite = async () => {
     return;
   }
 
+  const warnings = [];
   const details = { url: url.href };
   if (partitionKey) details.partitionKey = partitionKey;
-  const cookies = await getAllCookies(details);
+  const cookies = await getAllCookies(details, {
+    onPartitionError: (error) => warnings.push(error),
+  });
   const netscape = jsonToNetscapeMapper(cookies);
   const tableRows = netscape.map((row) => {
     const tr = document.createElement('tr');
@@ -331,6 +400,12 @@ const initializeSingleSite = async () => {
     return tr;
   });
   document.querySelector('#netscapeTable tbody').replaceChildren(...tableRows);
+  if (warnings.length) {
+    setSingleStatus(
+      'Some partitioned cookies could not be read; the table may be incomplete.',
+      'warning',
+    );
+  }
 };
 
 initializeSingleSite().catch((error) => {
@@ -396,10 +471,13 @@ const getCurrentSiteDetails = async () => {
 document.querySelector('#export').addEventListener('click', async () => {
   try {
     const { url, details } = await getCurrentSiteDetails();
-    const { text, format } = await getCookieText(details);
+    const { text, format, warnings } = await getCookieText(details);
     const base = siteCookieBaseName(url.hostname);
     await saveToFile(text, base, format);
-    setSingleStatus(`Started export of ${base}${format.ext}`);
+    setSingleStatus(
+      `Started export of ${base}${format.ext}${partitionWarningText(warnings)}`,
+      warnings.length ? 'warning' : 'info',
+    );
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
   }
@@ -408,10 +486,13 @@ document.querySelector('#export').addEventListener('click', async () => {
 document.querySelector('#exportAs').addEventListener('click', async () => {
   try {
     const { url, details } = await getCurrentSiteDetails();
-    const { text, format } = await getCookieText(details);
+    const { text, format, warnings } = await getCookieText(details);
     const base = siteCookieBaseName(url.hostname);
     await saveToFile(text, base, format, true);
-    setSingleStatus(`Started export for ${base}${format.ext}`);
+    setSingleStatus(
+      `Started export for ${base}${format.ext}${partitionWarningText(warnings)}`,
+      warnings.length ? 'warning' : 'info',
+    );
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
   }
@@ -420,9 +501,12 @@ document.querySelector('#exportAs').addEventListener('click', async () => {
 document.querySelector('#copy').addEventListener('click', async () => {
   try {
     const { details } = await getCurrentSiteDetails();
-    const { text } = await getCookieText(details);
+    const { text, warnings } = await getCookieText(details);
     await setClipboard(text, document.querySelector('#copy'));
-    setSingleStatus('Copied current site cookies.');
+    setSingleStatus(
+      `Copied current site cookies.${partitionWarningText(warnings)}`,
+      warnings.length ? 'warning' : 'info',
+    );
   } catch (error) {
     setSingleStatus(`Copy failed: ${error.message}`, 'error');
   }
@@ -432,9 +516,12 @@ document.querySelector('#exportAll').addEventListener('click', async () => {
   try {
     const { partitionKey } = await getActiveTabSnapshot();
     const details = partitionKey ? { partitionKey } : {};
-    const { text, format } = await getCookieText(details);
+    const { text, format, warnings } = await getCookieText(details);
     await saveToFile(text, 'cookies', format);
-    setSingleStatus(`Started export of cookies${format.ext}`);
+    setSingleStatus(
+      `Started export of cookies${format.ext}${partitionWarningText(warnings)}`,
+      warnings.length ? 'warning' : 'info',
+    );
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
   }
@@ -442,7 +529,7 @@ document.querySelector('#exportAll').addEventListener('click', async () => {
 
 /** Set last used format value */
 const selectedFormat = localStorage.getItem(STORAGE_FORMAT);
-if (selectedFormat && formatMap[selectedFormat]) {
+if (selectedFormat && getFormat(selectedFormat)) {
   el.format.value = selectedFormat;
 }
 el.format.addEventListener('change', () => {
@@ -461,7 +548,7 @@ const savedBatchFormat = localStorage.getItem(STORAGE_BATCH_FORMAT);
 if (
   savedBatchFormat &&
   savedBatchFormat !== 'header' &&
-  formatMap[savedBatchFormat]
+  getFormat(savedBatchFormat)
 ) {
   el.batchFormat.value = savedBatchFormat;
 } else {
@@ -558,11 +645,16 @@ el.batchCopy.addEventListener('click', async () => {
 el.batchExport.addEventListener('click', async () => {
   const groups = getSelectedGroups();
   if (!groups.length) return;
-  if (!exportGuard.begin()) return;
 
   const formatKey = el.batchFormat.value;
   const mode = el.batchMode.value;
-  const format = formatMap[formatKey];
+  const format = getFormat(formatKey);
+  if (!format) {
+    setBatchStatus('Unsupported export format.', 'error');
+    return;
+  }
+  if (!exportGuard.begin()) return;
+
   const date = new Date();
 
   updateSummary();
@@ -615,7 +707,5 @@ el.batchExport.addEventListener('click', async () => {
 // ----------------------------------------------
 
 loadSites().catch((error) => {
-  const message = `Could not read cookies: ${error.message}`;
-  setBatchStatus(message, 'error');
-  setSingleStatus(message, 'error');
+  setBatchStatus(`Could not read cookies: ${error.message}`, 'error');
 });

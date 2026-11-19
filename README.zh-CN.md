@@ -104,9 +104,10 @@ manifest/package 版本。
 
 ## 权限
 
-与上游完全一致，批量功能没有新增权限：
+扩展只申请以下权限：
 
 - **activeTab** —— 读取当前标签页 URL。
+- **clipboardWrite** —— 点击 Copy / Copy merged 时写入导出的文本。
 - **cookies** —— 读取并导出 cookie（不写入、不上传）。
 - **downloads** —— 保存生成的文件。
 - **notifications** —— 更新提示。

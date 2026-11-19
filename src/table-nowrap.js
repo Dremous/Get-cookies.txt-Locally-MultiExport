@@ -8,7 +8,7 @@
   tableElement.classList.toggle('nowrap', selectedFormat);
 
   nowrapOption.addEventListener('change', (e) => {
-    tableElement.classList.toggle('nowrap');
+    tableElement.classList.toggle('nowrap', e.target.checked);
     localStorage.setItem('tableNowrap', e.target.checked);
   });
 }

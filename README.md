@@ -112,9 +112,10 @@ The selection is stored in `localStorage`, so reopening the popup keeps your pre
 
 ## Permissions
 
-Identical to upstream, and unchanged by the batch feature:
+The extension requests only:
 
 - **activeTab** — URL of the current tab.
+- **clipboardWrite** — copy exported text when you press Copy / Copy merged.
 - **cookies** — read and export cookies (never writes, never sends).
 - **downloads** — save the generated files.
 - **notifications** — update notice.

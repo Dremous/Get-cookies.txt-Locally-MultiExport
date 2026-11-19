@@ -14,8 +14,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Full test suite
+    uses: ./.github/workflows/test.yml
+
   publish:
     name: Submit listed version to AMO
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,7 +76,7 @@ jobs:
           WEB_EXT_API_KEY: ${{ secrets.AMO_API_KEY }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_API_SECRET }}
         run: |
-          npx --yes web-ext@10.8.0 sign \
+          ./node_modules/.bin/web-ext sign \
             --source-dir=.amo-package \
             --channel=listed \
             --amo-metadata=amo-metadata.json \

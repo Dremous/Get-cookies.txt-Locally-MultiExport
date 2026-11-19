@@ -14,7 +14,8 @@
     "lefthook": "^1.11.3",
     "prettier": "^3.5.3",
     "puppeteer-core": "^24.43.1",
-    "selenium-webdriver": "^4.53.0"
+    "selenium-webdriver": "^4.53.0",
+    "web-ext": "10.8.0"
   },
   "scripts": {
     "clean": "git clean -fdX dist/",

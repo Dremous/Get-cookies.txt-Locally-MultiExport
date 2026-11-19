@@ -1,4 +1,5 @@
 import { createSaveMessageListener } from './modules/background_message.mjs';
+import { createBadgeCounter } from './modules/badge_counter.mjs';
 import getAllCookies, {
   getTabPartitionKey,
 } from './modules/get_all_cookies.mjs';
@@ -21,40 +22,25 @@ const setBadgeTextSafely = (tabId, text) =>
     });
   });
 
-/**
- * Update icon badge counter on active page
- */
-const updateBadgeCounter = async () => {
-  try {
+const badgeCounter = createBadgeCounter({
+  getActiveTab: async () => {
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
     });
-    if (!tab || typeof tab.id !== 'number') {
-      return;
-    }
-    const { id: tabId, url: urlString } = tab;
-    if (!urlString) {
-      await setBadgeTextSafely(tabId, '');
-      return;
-    }
-    const url = new URL(urlString);
-    const partitionKey = await getTabPartitionKey(tab);
-    const details = { url: url.href };
-    if (partitionKey) details.partitionKey = partitionKey;
-    const cookies = await getAllCookies(details);
-    await setBadgeTextSafely(tabId, cookies.length.toFixed());
-  } catch (error) {
-    if (!/No tab with id/i.test(error?.message ?? '')) {
-      console.warn('[badge] update failed', error);
-    }
-  }
-};
+    return tab;
+  },
+  getPartitionKey: getTabPartitionKey,
+  getAllCookies,
+  setBadgeText: setBadgeTextSafely,
+});
 
-chrome.cookies.onChanged.addListener(updateBadgeCounter);
-chrome.tabs.onUpdated.addListener(updateBadgeCounter);
-chrome.tabs.onActivated.addListener(updateBadgeCounter);
-chrome.windows.onFocusChanged.addListener(updateBadgeCounter);
+const scheduleBadgeCounter = () => badgeCounter.schedule();
+
+chrome.cookies.onChanged.addListener(scheduleBadgeCounter);
+chrome.tabs.onUpdated.addListener(scheduleBadgeCounter);
+chrome.tabs.onActivated.addListener(scheduleBadgeCounter);
+chrome.windows.onFocusChanged.addListener(scheduleBadgeCounter);
 
 // Update notification
 chrome.runtime.onInstalled.addListener(({ previousVersion, reason }) => {

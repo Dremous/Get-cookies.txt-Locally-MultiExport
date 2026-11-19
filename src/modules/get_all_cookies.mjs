@@ -17,9 +17,13 @@ const toQueryPartitionKey = (partitionKey) => {
 /**
  * Get all cookies that match the given criteria.
  * @param {chrome.cookies.GetAllDetails} details
+ * @param {{ onPartitionError?: (error: unknown) => void }} [options]
  * @returns {Promise<chrome.cookies.Cookie[]>}
  */
-export default async function getAllCookies(details) {
+export default async function getAllCookies(
+  details,
+  { onPartitionError } = {},
+) {
   details.storeId ??= await getCurrentCookieStoreId();
   const { partitionKey, ...detailsWithoutPartitionKey } = details;
   const queryPartitionKey = toQueryPartitionKey(partitionKey);
@@ -35,7 +39,11 @@ export default async function getAllCookies(details) {
           }),
         )
         .catch((error) => {
-          console.warn('[cookies] partitioned getAll failed', error);
+          if (typeof onPartitionError === 'function') {
+            onPartitionError(error);
+          } else {
+            console.warn('[cookies] partitioned getAll failed', error);
+          }
           return [];
         })
     : [];
@@ -67,6 +75,11 @@ export const getTabPartitionKey = async (tab) => {
       // Chrome before 132 has no getPartitionKey; fall back to the URL below.
     }
   }
+
+  // Firefox does not expose `getPartitionKey()` and does not support CHIPS
+  // queries; skip the fallback so we do not issue a query the API will reject.
+  const manifest = globalThis.chrome?.runtime?.getManifest?.();
+  if (manifest?.browser_specific_settings !== undefined) return null;
 
   const topLevelSite = getTopLevelSite(tab.url);
   return topLevelSite ? { topLevelSite } : null;
@@ -105,10 +118,11 @@ export const dedupeCookies = (cookies) => {
  * belonging to the active tab (those are invisible to a bare getAll call).
  * @param {chrome.tabs.Tab | undefined} [tab] Optional tab snapshot to avoid
  *   racing with a second active-tab lookup.
+ * @param {{ onPartitionError?: (error: unknown) => void }} [options]
  * @returns {Promise<chrome.cookies.Cookie[]>}
  */
-export async function getAllCookiesForBatch(tab) {
-  const cookies = await getAllCookies({});
+export async function getAllCookiesForBatch(tab, options = {}) {
+  const cookies = await getAllCookies({}, options);
 
   const activeTab =
     tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
@@ -117,7 +131,7 @@ export async function getAllCookiesForBatch(tab) {
 
   // Query by partition key only: `url` would restrict the result to the
   // top-level page's own domain and hide third-party partitioned cookies.
-  const partitioned = await getAllCookies({ partitionKey });
+  const partitioned = await getAllCookies({ partitionKey }, options);
   return dedupeCookies([...cookies, ...partitioned]);
 }
 

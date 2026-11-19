@@ -18,6 +18,33 @@ const popupJs = readFileSync(
   new URL('../src/popup.mjs', import.meta.url),
   'utf8',
 );
+const nowrapJs = readFileSync(
+  new URL('../src/table-nowrap.js', import.meta.url),
+  'utf8',
+);
+
+const relativeLuminance = (hex) => {
+  const channels = hex
+    .replace('#', '')
+    .match(/.{2}/g)
+    .map((value) => Number.parseInt(value, 16) / 255)
+    .map((value) =>
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+    );
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+};
+
+const contrastRatio = (foreground, background) => {
+  const lighter = Math.max(
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  );
+  const darker = Math.min(
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  );
+  return (lighter + 0.05) / (darker + 0.05);
+};
 
 test('popup document declares language, title, and color scheme', () => {
   assert.match(html, /<html lang="en">/);
@@ -72,4 +99,32 @@ test('single-site initialization surfaces errors instead of swallowing them', ()
     popupJs,
     /getAllCookies\(details\)\.catch\(\(\) => \[\]\)/,
   );
+});
+
+test('copy and dark error colors meet WCAG AA contrast', () => {
+  assert.ok(contrastRatio('#2b6f9e', '#ffffff') >= 4.5);
+  assert.ok(contrastRatio('#ff8a80', '#2a2a2a') >= 4.5);
+  assert.ok(contrastRatio('#8a4b00', '#fdfbff') >= 4.5);
+  assert.ok(contrastRatio('#ffb86b', '#2a2a2a') >= 4.5);
+  assert.match(popupCss, /background-color: #2b6f9e;/);
+  assert.match(batchCss, /color: #ff8a80;/);
+});
+
+test('loadSites failure does not overwrite the single-site status', () => {
+  const tail = popupJs.slice(popupJs.lastIndexOf('loadSites().catch'));
+  assert.match(tail, /setBatchStatus/);
+  assert.doesNotMatch(tail, /setSingleStatus/);
+});
+
+test('Firefox host-permission guidance and partition warnings are visible', () => {
+  assert.match(popupJs, /hasHostPermission/);
+  assert.match(popupJs, /chrome\.permissions\.contains/);
+  assert.match(popupJs, /about:addons/);
+  assert.match(popupJs, /onPartitionError/);
+  assert.match(popupJs, /Some partitioned cookies could not be read/);
+  assert.match(batchCss, /\[data-kind="warning"\]/);
+});
+
+test('table-nowrap uses the checkbox state as the explicit class target', () => {
+  assert.match(nowrapJs, /classList\.toggle\('nowrap', e\.target\.checked\)/);
 });

@@ -208,6 +208,10 @@
   color: #c0392b;
 }
 
+.batch-status[data-kind="warning"] {
+  color: #8a4b00;
+}
+
 .batch-hint {
   margin: 0;
   color: #555;
@@ -292,6 +296,14 @@
 
   .batch-status {
     color: #e09200;
+  }
+
+  .batch-status[data-kind="error"] {
+    color: #ff8a80;
+  }
+
+  .batch-status[data-kind="warning"] {
+    color: #ffb86b;
   }
 
   .batch-hint {

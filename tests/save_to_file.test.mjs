@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import saveToFile from '../src/modules/save_to_file.mjs';
 
@@ -276,4 +277,76 @@ test('saveToFile suggests the requested filename when Chrome ignores it', async 
     assert.equal(listeners.size, 0);
     assert.equal(revoked.length, 1);
   });
+});
+
+test('saveToFile keeps slow downloads alive and probes anchor completion', () => {
+  const source = readFileSync(
+    new URL('../src/modules/save_to_file.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /CLEANUP_TIMEOUT_MS = 5 \* 60_000/);
+  assert.match(source, /checkAnchorDownloadState/);
+  assert.match(source, /chrome\.downloads\.search\(\{\}\)/);
+});
+
+test('saveToFile probes an anchor download that finished before listeners', async () => {
+  let clicked = false;
+  const anchor = {
+    href: '',
+    download: '',
+    rel: '',
+    style: {},
+    click: () => {
+      clicked = true;
+    },
+    remove: () => {},
+  };
+  const timers = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (callback, delay) => {
+    const timer = { callback, delay, cleared: false };
+    timers.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (timer) timer.cleared = true;
+  };
+
+  const fake = {
+    search: async () => [{ id: 7, url: anchor.href, state: 'complete' }],
+    onCreated: {
+      addListener: () => {},
+      removeListener: () => {},
+    },
+    onChanged: {
+      addListener: () => {},
+      removeListener: () => {},
+    },
+  };
+  const documentFake = {
+    createElement: () => anchor,
+    body: { appendChild: () => {} },
+  };
+
+  try {
+    await withDownloads(fake, async ({ revoked }) => {
+      await withDocument(documentFake, async () => {
+        await saveToFile('cookie=value', 'cookies', {
+          ext: '.txt',
+          mimeType: 'text/plain',
+        });
+        assert.equal(clicked, true);
+        const checkTimer = timers.find((timer) => timer.delay === 1000);
+        assert.equal(typeof checkTimer?.callback, 'function');
+        checkTimer.callback();
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(revoked.length, 1);
+      });
+    });
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
 });

@@ -98,6 +98,26 @@ test('getTabPartitionKey falls back to the schemeful site', async () => {
   });
 });
 
+test('getTabPartitionKey skips the unsupported Firefox fallback', async () => {
+  await withChrome(
+    {
+      runtime: {
+        getManifest: () => ({ browser_specific_settings: { gecko: {} } }),
+      },
+      cookies: {},
+    },
+    async () => {
+      assert.equal(
+        await getTabPartitionKey({
+          id: 7,
+          url: 'https://www.example.com/a',
+        }),
+        null,
+      );
+    },
+  );
+});
+
 test('getAllCookiesForBatch queries partitioned cookies without a URL filter', async () => {
   const calls = [];
   const plain = { ...baseCookie, value: 'plain' };
@@ -210,5 +230,66 @@ test('getAllCookies tolerates a missing active tab', async () => {
     assert.deepEqual(await getAllCookies({}), []);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].storeId, undefined);
+  });
+});
+
+test('getAllCookies reports a partition query failure through the callback', async () => {
+  const errors = [];
+  const plain = { ...baseCookie, value: 'plain' };
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: { query: async () => [] },
+    cookies: {
+      getAllCookieStores: async () => [],
+      getAll: async (details) => {
+        if (details.partitionKey) throw new Error('partition query failed');
+        return [plain];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    const result = await getAllCookies(
+      {
+        partitionKey: {
+          topLevelSite: 'https://example.com',
+          hasCrossSiteAncestor: false,
+        },
+      },
+      { onPartitionError: (error) => errors.push(error) },
+    );
+
+    assert.equal(result.length, 1);
+    assert.equal(result[0].value, 'plain');
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /partition query failed/);
+  });
+});
+
+test('getAllCookiesForBatch forwards partition failures to the caller', async () => {
+  const errors = [];
+  const plain = { ...baseCookie, value: 'plain' };
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: { query: async () => [{ id: 7, url: 'https://www.example.com/' }] },
+    cookies: {
+      getAllCookieStores: async () => [{ id: '0', tabIds: [7] }],
+      getPartitionKey: async () => ({
+        partitionKey: { topLevelSite: 'https://example.com' },
+      }),
+      getAll: async (details) => {
+        if (details.partitionKey) throw new Error('partition query failed');
+        return [plain];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    const result = await getAllCookiesForBatch(undefined, {
+      onPartitionError: (error) => errors.push(error),
+    });
+
+    assert.equal(result.length, 1);
+    assert.equal(errors.length, 1);
   });
 });
