@@ -15,7 +15,7 @@ anywhere in the extension.
 | Feature | Upstream | This fork |
 | --- | --- | --- |
 | Export current site (Netscape / JSON / Header) | ✅ | ✅ |
-| Export every cookie in the profile | ✅ | ✅ |
+| Export every cookie in the current cookie store | ✅ | ✅ |
 | List all sites that have cookies | — | ✅ grouped by registrable domain |
 | Select many sites and export together | — | ✅ |
 | Search / select all / invert selection | — | ✅ |
@@ -24,9 +24,11 @@ anywhere in the extension.
 | Output as separate downloads | — | ✅ |
 | Remember the last selection | — | ✅ |
 
-Sites are grouped by base domain: cookies from `example.com`, `www.example.com` and `api.example.com` land in a single
-`example.com` bucket, and two-label public suffixes such as `co.uk` or `com.cn` are handled, so `shop.example.co.uk`
-is grouped under `example.co.uk` rather than `co.uk`.
+Sites are grouped by registrable domain: cookies from `example.com`, `www.example.com` and `api.example.com` land in a
+single `example.com` bucket. Two-label public suffixes such as `co.uk` or `com.cn` are handled, so
+`shop.example.co.uk` is grouped under `example.co.uk` rather than `co.uk`. Common private suffixes such as
+`github.io`, `vercel.app` and `s3.amazonaws.com` are also split, so `alice.github.io` and `bob.github.io` stay in
+separate buckets instead of collapsing into one `github.io` entry.
 
 ## Install
 
@@ -54,6 +56,9 @@ npm run build:firefox
 
 Unzip `dist/get-cookies.txt-locally_v*_firefox.zip` and select its `manifest.json` via **Load Temporary Add-on**.
 
+If the site list is empty after loading the temporary add-on, open `about:addons`, select the extension, open
+**Permissions**, and enable **Access your data for all websites** so the `chrome.cookies` API can read cookies.
+
 ## Usage
 
 ### Current site
@@ -63,7 +68,7 @@ The **Current Site** tab behaves exactly like upstream: it shows the cookies of 
 
 ### Multiple sites
 
-1. Open the **Multiple Sites** tab — it lists every site that has cookies in this browser profile, together with the
+1. Open the **Multiple Sites** tab — it lists every site that has cookies in the current cookie store, together with the
    cookie count and a `current` badge for the active site.
 2. Pick sites individually, or use **All / None / Invert** together with the filter box.
 3. Choose the format and the output mode:
@@ -102,6 +107,8 @@ npm install
 npm test              # node:test unit tests (site grouping, ZIP writer, batch export)
 npm run check         # biome lint/format + version sync check
 npm run build         # dist/*_chrome.zip and dist/*_firefox.zip
+FIREFOX_BIN=/path/to/firefox npm run test:firefox
+                      # Firefox E2E for popup -> background -> downloads (needs Firefox 115+)
 ```
 
 Layout:

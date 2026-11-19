@@ -34,6 +34,43 @@ test('getSiteKey folds subdomains into the registrable domain', () => {
   assert.equal(getSiteKey('foo.example.com.cn'), 'example.com.cn');
 });
 
+test('getSiteKey separates tenants of private public suffixes', () => {
+  assert.equal(getSiteKey('alice.github.io'), 'alice.github.io');
+  assert.equal(getSiteKey('bob.github.io'), 'bob.github.io');
+  assert.equal(getSiteKey('foo.vercel.app'), 'foo.vercel.app');
+  assert.equal(getSiteKey('bar.vercel.app'), 'bar.vercel.app');
+  assert.equal(
+    getSiteKey('bucket.s3.amazonaws.com'),
+    'bucket.s3.amazonaws.com',
+  );
+  assert.equal(getSiteKey('other.s3.amazonaws.com'), 'other.s3.amazonaws.com');
+  assert.equal(getSiteKey('github.io'), 'github.io');
+  assert.equal(getSiteKey('vercel.app'), 'vercel.app');
+  assert.equal(getSiteKey('s3.amazonaws.com'), 's3.amazonaws.com');
+});
+
+test('getSiteKey keeps normal subdomains grouped', () => {
+  assert.equal(getSiteKey('www.example.com'), 'example.com');
+  assert.equal(getSiteKey('api.example.com'), 'example.com');
+  assert.equal(getSiteKey('shop.example.co.uk'), 'example.co.uk');
+});
+
+test('groupCookiesBySite keeps shared-suffix tenants in separate buckets', () => {
+  const groups = groupCookiesBySite([
+    cookie({ domain: '.alice.github.io' }),
+    cookie({ domain: '.bob.github.io' }),
+    cookie({ domain: '.foo.vercel.app' }),
+    cookie({ domain: '.bar.vercel.app' }),
+  ]);
+
+  assert.deepEqual([...groups.keys()].sort(), [
+    'alice.github.io',
+    'bar.vercel.app',
+    'bob.github.io',
+    'foo.vercel.app',
+  ]);
+});
+
 test('getSiteKey keeps localhost and IP addresses intact', () => {
   assert.equal(getSiteKey('localhost'), 'localhost');
   assert.equal(getSiteKey('127.0.0.1'), '127.0.0.1');

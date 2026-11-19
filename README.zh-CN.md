@@ -12,7 +12,7 @@
 | 功能 | 上游 | 本复刻版 |
 | --- | --- | --- |
 | 导出当前站点（Netscape / JSON / Header） | ✅ | ✅ |
-| 导出浏览器里的全部 cookie | ✅ | ✅ |
+| 导出当前 cookie store 里的全部 cookie | ✅ | ✅ |
 | 列出所有存有 cookie 的网站 | — | ✅ 按基础域名聚合 |
 | 勾选多个网站一起导出 | — | ✅ |
 | 搜索 / 全选 / 反选 | — | ✅ |
@@ -23,7 +23,9 @@
 
 站点按基础域名（registrable domain）聚合：`example.com`、`www.example.com`、`api.example.com` 的 cookie
 都会归到 `example.com` 一个条目；`co.uk`、`com.cn` 这类二级公共后缀也做了处理，所以
-`shop.example.co.uk` 会归到 `example.co.uk` 而不是 `co.uk`。
+`shop.example.co.uk` 会归到 `example.co.uk` 而不是 `co.uk`。`github.io`、`vercel.app`、
+`s3.amazonaws.com` 等常见私有公共后缀同样会拆分，`alice.github.io` 和 `bob.github.io` 会保持为两个独立条目，
+不会合并成一个 `github.io`。
 
 ## 安装
 
@@ -50,6 +52,9 @@ npm run build:firefox
 把 `dist/get-cookies.txt-locally_v*_firefox.zip` 解压到一个文件夹，打开
 `about:debugging#/runtime/this-firefox`，选择「临时载入附加组件」，选中解压目录里的 `manifest.json`。
 
+如果加载后站点列表为空，打开 `about:addons`，选中本扩展，进入「权限」页，启用
+「访问所有网站的数据」（Access your data for all websites），让 `chrome.cookies` 能读取 cookie。
+
 ## 使用
 
 ### 当前站点
@@ -59,7 +64,7 @@ npm run build:firefox
 
 ### 多站点批量
 
-1. 打开「Multiple Sites」标签，列表会显示当前浏览器配置里所有存有 cookie 的站点、cookie 数量，
+1. 打开「Multiple Sites」标签，列表会显示当前 cookie store 里所有存有 cookie 的站点、cookie 数量，
    当前标签页对应的站点会带 `current` 标记。
 2. 用复选框逐个选择，或用 **All / None / Invert** 配合上方过滤框批量操作。
 3. 选择格式与输出方式：
@@ -97,6 +102,8 @@ npm install
 npm test              # node:test 单元测试（域名聚合、ZIP 写入、批量导出）
 npm run check         # biome 检查 + 版本一致性
 npm run build         # 生成 dist/*_chrome.zip 与 dist/*_firefox.zip
+FIREFOX_BIN=/path/to/firefox npm run test:firefox
+                      # Firefox 保存链路端到端测试（需要 Firefox 115+）
 ```
 
 目录结构：

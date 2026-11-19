@@ -1,12 +1,17 @@
 /**
- * Public suffixes that consist of two labels (e.g. "co.uk", "com.cn").
- * A cookie domain such as "shop.example.co.uk" is grouped under
- * "example.co.uk" instead of "co.uk".
+ * Public suffixes that are commonly used by cookie-bearing sites.
+ *
+ * The list covers two-label country-code suffixes (e.g. "co.uk", "com.cn")
+ * and common private suffixes (e.g. "github.io", "vercel.app",
+ * "s3.amazonaws.com"). Without these private entries every tenant of a
+ * shared host such as "alice.github.io" and "bob.github.io" would collapse
+ * into one "github.io" bucket.
  *
  * The list is intentionally compact: it covers the most common cases without
- * shipping the full Public Suffix List inside the extension.
+ * shipping the full Public Suffix List (which is hundreds of kilobytes)
+ * inside the extension.
  */
-const TWO_LABEL_PUBLIC_SUFFIXES = new Set([
+const PUBLIC_SUFFIXES = new Set([
   'ac.cn',
   'ac.jp',
   'ac.uk',
@@ -58,6 +63,27 @@ const TWO_LABEL_PUBLIC_SUFFIXES = new Set([
   'org.nz',
   'org.sg',
   'org.uk',
+  // Common private suffixes from the Public Suffix List.
+  'appspot.com',
+  'azurewebsites.net',
+  'blogspot.com',
+  'cloudfront.net',
+  'firebaseapp.com',
+  'fly.dev',
+  'github.io',
+  'githubusercontent.com',
+  'gitlab.io',
+  'herokuapp.com',
+  'netlify.app',
+  'notion.site',
+  'onrender.com',
+  'pages.dev',
+  'r2.dev',
+  'readthedocs.io',
+  's3.amazonaws.com',
+  'vercel.app',
+  'web.app',
+  'workers.dev',
 ]);
 
 /**
@@ -83,6 +109,11 @@ const isIpAddress = (host) => {
 /**
  * Get the registrable domain ("site key") a cookie belongs to.
  * ".www.example.co.uk" -> "example.co.uk", "localhost" -> "localhost".
+ *
+ * The longest matching suffix wins, which is required for three-label
+ * private suffixes such as "s3.amazonaws.com". When a host is itself a
+ * public suffix (e.g. "github.io"), it has no registrable parent and is
+ * returned unchanged.
  * @param {string | undefined} domain
  * @returns {string}
  */
@@ -91,12 +122,22 @@ export const getSiteKey = (domain) => {
   if (!host) return '';
   if (host === 'localhost' || isIpAddress(host)) return host;
 
-  const labels = host.split('.');
-  if (labels.length <= 2) return host;
+  if (PUBLIC_SUFFIXES.has(host)) return host;
 
-  const lastTwo = labels.slice(-2).join('.');
-  const suffixLength = TWO_LABEL_PUBLIC_SUFFIXES.has(lastTwo) ? 3 : 2;
-  return labels.slice(-suffixLength).join('.');
+  const labels = host.split('.');
+  if (labels.length <= 1) return host;
+
+  for (
+    let suffixLength = Math.min(labels.length - 1, 3);
+    suffixLength >= 1;
+    suffixLength--
+  ) {
+    const suffix = labels.slice(-suffixLength).join('.');
+    if (PUBLIC_SUFFIXES.has(suffix)) {
+      return labels.slice(-(suffixLength + 1)).join('.');
+    }
+  }
+  return labels.slice(-2).join('.');
 };
 
 /**
