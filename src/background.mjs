@@ -5,25 +5,50 @@ import getAllCookies, {
 import saveToFile from './modules/save_to_file.mjs';
 
 /**
+ * Set the badge text, ignoring the expected race where the tab has closed
+ * between the active-tab query and the badge update.
+ * @param {number} tabId
+ * @param {string} text
+ */
+const setBadgeTextSafely = (tabId, text) =>
+  new Promise((resolve) => {
+    chrome.action.setBadgeText({ tabId, text }, () => {
+      const error = chrome.runtime.lastError;
+      if (error && !/No tab with id/i.test(error.message)) {
+        console.warn('[badge] setBadgeText failed', error.message);
+      }
+      resolve();
+    });
+  });
+
+/**
  * Update icon badge counter on active page
  */
 const updateBadgeCounter = async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) {
-    return;
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    if (!tab || typeof tab.id !== 'number') {
+      return;
+    }
+    const { id: tabId, url: urlString } = tab;
+    if (!urlString) {
+      await setBadgeTextSafely(tabId, '');
+      return;
+    }
+    const url = new URL(urlString);
+    const partitionKey = await getTabPartitionKey(tab);
+    const details = { url: url.href };
+    if (partitionKey) details.partitionKey = partitionKey;
+    const cookies = await getAllCookies(details);
+    await setBadgeTextSafely(tabId, cookies.length.toFixed());
+  } catch (error) {
+    if (!/No tab with id/i.test(error?.message ?? '')) {
+      console.warn('[badge] update failed', error);
+    }
   }
-  const { id: tabId, url: urlString } = tab;
-  if (!urlString) {
-    chrome.action.setBadgeText({ tabId, text: '' });
-    return;
-  }
-  const url = new URL(urlString);
-  const partitionKey = await getTabPartitionKey(tab);
-  const details = { url: url.href };
-  if (partitionKey) details.partitionKey = partitionKey;
-  const cookies = await getAllCookies(details);
-  const text = cookies.length.toFixed();
-  chrome.action.setBadgeText({ tabId, text });
 };
 
 chrome.cookies.onChanged.addListener(updateBadgeCounter);
