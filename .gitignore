@@ -3,3 +3,5 @@ dist/
 preview.html
 .DS_Store
 *.log
+.amo-package/
+web-ext-artifacts/

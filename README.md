@@ -60,6 +60,22 @@ Unzip `dist/get-cookies.txt-locally_v*_firefox.zip` and select its `manifest.jso
 If the site list is empty after loading the temporary add-on, open `about:addons`, select the extension, open
 **Permissions**, and enable **Access your data for all websites** so the `chrome.cookies` API can read cookies.
 
+### Firefox AMO publishing
+
+The `Publish Firefox add-on` workflow submits a listed Firefox version to AMO when a `v*.*.*` tag is pushed, or when
+the workflow is started manually. It builds the Firefox ZIP, runs the checks and tests, extracts the built package,
+and calls `web-ext sign --channel=listed --approval-timeout=0`. The command exits after submission; AMO review and
+signing continue asynchronously.
+
+Add these repository secrets:
+
+- `AMO_API_KEY` — the JWT issuer from [AMO API credentials](https://addons.mozilla.org/developers/addon/api/key/)
+- `AMO_API_SECRET` — the JWT secret from the same page
+
+[`amo-metadata.json`](amo-metadata.json) contains the metadata required for the first listed version. The workflow
+uses the fork-specific Firefox add-on ID already present in `manifest-firefox.json`. Do not force-move an already
+published tag; bump the manifest/package version for each AMO submission.
+
 ## Usage
 
 ### Current site

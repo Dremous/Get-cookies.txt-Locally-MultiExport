@@ -55,6 +55,21 @@ npm run build:firefox
 如果加载后站点列表为空，打开 `about:addons`，选中本扩展，进入「权限」页，启用
 「访问所有网站的数据」（Access your data for all websites），让 `chrome.cookies` 能读取 cookie。
 
+### Firefox AMO 自动发布
+
+推送 `v*.*.*` 标签，或手动运行 `Publish Firefox add-on` workflow 时，会自动构建 Firefox ZIP、执行检查与测试，
+再通过 `web-ext sign --channel=listed --approval-timeout=0` 上传并提交 AMO 审核。命令在提交后返回，审核与签名
+由 AMO 异步完成。
+
+需要在仓库 Secrets 中配置：
+
+- `AMO_API_KEY` —— [AMO API 凭据](https://addons.mozilla.org/developers/addon/api/key/) 中的 JWT issuer
+- `AMO_API_SECRET` —— 同一页面的 JWT secret
+
+[`amo-metadata.json`](amo-metadata.json) 提供首次上架所需的分类、摘要、许可证等元数据。workflow 使用
+`manifest-firefox.json` 中 fork 独立的扩展 ID。已经发布的 tag 不要强制覆盖；每次提交 AMO 前应递增
+manifest/package 版本。
+
 ## 使用
 
 ### 当前站点

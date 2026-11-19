@@ -1,0 +1,15 @@
+{
+  "version": {
+    "license": "MIT"
+  },
+  "categories": {
+    "firefox": ["web-development"]
+  },
+  "summary": {
+    "en-US": "Export cookies.txt files locally for one or more sites, with batch export and ZIP support."
+  },
+  "homepage": {
+    "en-US": "https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport"
+  },
+  "requires_payment": false
+}

@@ -1,0 +1,74 @@
+name: Publish Firefox add-on
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amo-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Submit listed version to AMO
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          node -e "const p=require('./package.json'); const tag=process.env.GITHUB_REF_NAME; if ('v'+p.version !== tag) { console.error('Tag '+tag+' does not match package version v'+p.version); process.exit(1); }"
+
+      - name: Run checks and tests
+        run: |
+          npm run check
+          npm test
+
+      - name: Build Firefox package
+        run: npm run build:firefox
+
+      - name: Prepare AMO package
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          rm -rf .amo-package
+          unzip -q "dist/get-cookies.txt-locally_v${VERSION}_firefox.zip" -d .amo-package
+
+      - name: Check AMO credentials
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+        run: |
+          if [ -z "$WEB_EXT_API_KEY" ] || [ -z "$WEB_EXT_API_SECRET" ]; then
+            echo "::error::Missing AMO_API_KEY or AMO_API_SECRET repository secret."
+            exit 1
+          fi
+
+      - name: Submit listed version
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+        run: |
+          npx --yes web-ext@10.8.0 sign \
+            --source-dir=.amo-package \
+            --channel=listed \
+            --amo-metadata=amo-metadata.json \
+            --approval-timeout=0
