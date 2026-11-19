@@ -3,7 +3,8 @@
  * popup -> chrome.runtime.sendMessage -> background -> chrome.downloads.
  *
  * It installs the built Firefox bundle as a temporary add-on, grants the
- * host permission through about:addons (Firefox MV3 host access is opt-in),
+ * host permission through Firefox’s internal permission store (MV3 host
+ * access is opt-in, and about: pages are not navigable from WebDriver),
  * exports two sites as one merged file and as a ZIP, and checks the actual
  * files written by the background page.
  *
@@ -46,6 +47,11 @@ const resolveFirefoxBinary = () => {
     return '';
   }
 };
+
+// Firefox 160 denies the Marionette chrome context unless system access is
+// enabled. The chrome context is used only to resolve the temporary add-on
+// UUID and grant its host permission, avoiding restricted about: pages.
+process.env.MOZ_REMOTE_ALLOW_SYSTEM_ACCESS = '1';
 
 const firefoxBinary = resolveFirefoxBinary();
 
