@@ -1,4 +1,4 @@
-/* Multi-site batch export UI */
+/* Multi-site batch export UI — styled to match the upstream popup */
 
 .panel {
   display: grid;
@@ -11,80 +11,60 @@
 
 .tab-bar {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  margin-top: 4px;
 }
 
 .tab {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25em;
-  padding: 6px 4px;
+  padding: 4px 2px;
   border: none;
-  border-bottom: 3px solid transparent;
-  border-radius: 6px 6px 0 0;
-  outline: none;
   background: transparent;
-  color: inherit;
+  color: #333;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   cursor: pointer;
 }
 
-.tab:focus-visible {
-  box-shadow: 0 0 0 2px rgba(72, 95, 199, 0.45);
+.tab:hover {
+  text-decoration: underline;
 }
 
-.tab:hover {
-  background: rgba(72, 95, 199, 0.08);
+.tab:focus:not(:focus-visible) {
+  outline: none;
 }
 
 .tab.active {
   color: #3153ee;
-  border-bottom-color: #3153ee;
   font-weight: bold;
-}
-
-.tab .material-symbols-outlined {
-  font-size: 1.05rem;
+  text-decoration: underline;
 }
 
 .tab-badge {
-  min-width: 1.35em;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: #485fc7;
-  color: #fff;
-  font-size: 0.72rem;
-  line-height: 1.35em;
-  text-align: center;
+  margin-left: 0.2em;
+  color: inherit;
+  font-weight: normal;
 }
 
 .batch-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .site-search {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  border: 1px solid #c9c9c9;
-  border-radius: 6px;
+  padding: 2px 4px;
+  border: 1px solid #767676;
+  border-radius: 3px;
   background: #fff;
-}
-
-.site-search .material-symbols-outlined {
-  font-size: 1rem;
-  color: #666;
 }
 
 .site-search input {
   width: 100%;
+  padding: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -92,49 +72,49 @@
 }
 
 .tool-btn {
-  padding: 4px 8px;
-  border: 1px solid #485fc7;
-  border-radius: 6px;
+  padding: 2px 6px;
+  border: 1px solid #767676;
+  border-radius: 3px;
   background: #fff;
-  color: #485fc7;
+  color: #000;
+  font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
 }
 
 .tool-btn:hover {
-  background: #485fc7;
-  color: #fff;
+  background: aliceblue;
 }
 
 .selection-summary {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #555;
+  color: #333;
   font-size: 0.8rem;
 }
 
 .site-list {
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid #000;
   background: #fff;
 }
 
 .site-empty {
   margin: 0;
-  padding: 14px 10px;
-  color: #888;
+  padding: 12px 8px;
+  color: #666;
   text-align: center;
 }
 
 .site-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-bottom: 1px solid #eee;
+  gap: 6px;
+  padding: 3px 5px;
+  border-bottom: 1px solid #000;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 
@@ -142,47 +122,43 @@
   border-bottom: none;
 }
 
+.site-item:nth-of-type(2n + 1) {
+  background: aliceblue;
+}
+
 .site-item:hover {
-  background: #f2f6ff;
+  background: #e2efff;
 }
 
 .site-checkbox {
   margin: 0;
-  accent-color: #485fc7;
 }
 
 .site-name {
   flex: 1;
   overflow: hidden;
-  font-size: 0.85rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .site-current {
   flex: none;
-  padding: 0 4px;
-  border-radius: 4px;
-  background: #e8edff;
   color: #3153ee;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
 }
 
 .site-meta {
   flex: none;
   min-width: 1.8em;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #f1f1f1;
-  color: #666;
-  font-size: 0.75rem;
-  text-align: center;
+  color: #333;
+  font-size: 0.78rem;
+  text-align: right;
 }
 
 .batch-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6em 1em;
+  gap: 0.5em 1em;
 }
 
 .batch-actions {
@@ -192,9 +168,8 @@
 }
 
 .export-btn:disabled {
-  opacity: 0.55;
+  opacity: 0.6;
   cursor: not-allowed;
-  filter: grayscale(0.5);
 }
 
 .batch-status {
@@ -210,24 +185,22 @@
 
 .batch-hint {
   margin: 0;
-  color: #777;
-  font-size: 0.72rem;
+  color: #555;
+  font-size: 0.75rem;
   line-height: 1.35;
 }
 
 @media (prefers-color-scheme: dark) {
-  .tab:hover {
-    background: rgba(224, 146, 0, 0.12);
+  .tab {
+    color: #dfdfdf;
   }
 
   .tab.active {
     color: #e09200;
-    border-bottom-color: #e09200;
   }
 
   .tab-badge {
-    background: #e09200;
-    color: #222;
+    color: inherit;
   }
 
   .site-search {
@@ -239,19 +212,14 @@
     color: #dfdfdf;
   }
 
-  .site-search .material-symbols-outlined {
-    color: #aaa;
-  }
-
   .tool-btn {
-    border-color: #7f93ff;
-    background: transparent;
-    color: #9db0ff;
+    border-color: #555;
+    background: #3a3a3a;
+    color: #dfdfdf;
   }
 
   .tool-btn:hover {
-    background: #7f93ff;
-    color: #222;
+    background: #424242;
   }
 
   .selection-summary {
@@ -259,8 +227,8 @@
   }
 
   .site-list {
-    border-color: #444;
-    background: #2a2a2a;
+    border-color: #424242;
+    background: #1e1e1e;
   }
 
   .site-empty {
@@ -268,7 +236,11 @@
   }
 
   .site-item {
-    border-bottom-color: #3a3a3a;
+    border-bottom-color: #424242;
+  }
+
+  .site-item:nth-of-type(2n + 1) {
+    background: #2a2a2a;
   }
 
   .site-item:hover {
@@ -276,13 +248,11 @@
   }
 
   .site-current {
-    background: #4a3a1a;
     color: #e09200;
   }
 
   .site-meta {
-    background: #3a3a3a;
-    color: #bbb;
+    color: #ccc;
   }
 
   .batch-status {

@@ -24,7 +24,6 @@
           aria-controls="singlePanel"
           data-panel="singlePanel"
         >
-          <span class="material-symbols-outlined">tab</span>
           Current Site
         </button>
         <button
@@ -35,9 +34,8 @@
           aria-controls="multiPanel"
           data-panel="multiPanel"
         >
-          <span class="material-symbols-outlined">library_add_check</span>
           Multiple Sites
-          <span id="siteCountBadge" class="tab-badge">0</span>
+          <span id="siteCountBadge" class="tab-badge">(0)</span>
         </button>
       </nav>
       <hr />
@@ -140,7 +138,6 @@
       <section id="multiPanel" class="panel" role="tabpanel" hidden>
         <div class="batch-toolbar">
           <div class="site-search">
-            <span class="material-symbols-outlined">search</span>
             <input id="siteSearch" type="search" placeholder="Filter sites" autocomplete="off" />
           </div>
           <button id="selectAll" class="tool-btn" title="Select all visible sites">All</button>

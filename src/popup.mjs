@@ -162,7 +162,7 @@ const updateSummary = () => {
       : ''
   }`;
   el.cookieCountText.textContent = `${selectedCookieCount()} cookies`;
-  el.siteCountBadge.textContent = sites.length.toFixed();
+  el.siteCountBadge.textContent = `(${sites.length})`;
   el.batchExport.disabled = selectedSites.size === 0;
   el.batchCopy.disabled = selectedSites.size === 0;
 };
@@ -213,7 +213,7 @@ const renderSiteList = () => {
     if (entry.site === currentSiteKey) {
       const badge = document.createElement('span');
       badge.className = 'site-current';
-      badge.textContent = 'current';
+      badge.textContent = '(current)';
       label.append(badge);
     }
     label.append(meta);

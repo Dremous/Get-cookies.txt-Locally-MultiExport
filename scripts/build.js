@@ -20,9 +20,11 @@ const options = program
  * works in a fresh copy of the repository without tags.
  */
 const getVersion = () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json')));
+  const version = `v${pkg.version}`;
   try {
-    // Prefer a tag pointing exactly at HEAD; "git describe" would append
-    // "-<n>-g<sha>" for commits after the last tag.
+    // Use the tag at HEAD only when it matches package.json; a tag left on an
+    // earlier commit must not override a freshly bumped version.
     const tags = execSync('git tag --points-at HEAD', {
       cwd: ROOT,
       stdio: 'pipe',
@@ -31,12 +33,11 @@ const getVersion = () => {
       .trim()
       .split('\n')
       .filter(Boolean);
-    if (tags.length) return tags[0];
+    if (tags.includes(version)) return version;
   } catch {
-    // git may be unavailable in a source archive, fall through to package.json
+    // git may be unavailable in a source archive
   }
-  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json')));
-  return `v${pkg.version}`;
+  return version;
 };
 
 const build = async (version) => {
