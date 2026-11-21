@@ -2,6 +2,7 @@
  * https://publicsuffix.org/list/public_suffix_list.dat
  * VERSION: 2026-11-21_04-33-45_UTC
  * COMMIT: 87a2c1b8de5886a133ff4da21b2aa6fec88d8739
+ * See THIRD_PARTY_NOTICES.md and LICENSES/MPL-2.0.txt for license details.
  * Do not hand-edit; regenerate with scripts/update-public-suffixes.mjs.
  */
 export const PUBLIC_SUFFIX_RULES = new Set(

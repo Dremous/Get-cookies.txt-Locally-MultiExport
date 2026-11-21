@@ -77,3 +77,20 @@ test('AMO publish is manual-only and requires matching version confirmation', ()
     /if \[ "\$EXPECTED_VERSION" != "\$VERSION" \]; then/,
   );
 });
+
+test('AMO publish requires a release tag at HEAD and a protected environment', () => {
+  const amoWorkflow = read('../.github/workflows/publish-amo.yml');
+  assert.match(amoWorkflow, /environment: amo/);
+  assert.match(amoWorkflow, /fetch-depth: 0/);
+  assert.match(amoWorkflow, /git fetch --tags --force/);
+  assert.match(amoWorkflow, /refs\/tags\/\$\{TAG\}\^\{commit\}/);
+  assert.match(amoWorkflow, /HEAD_SHA=\$\(git rev-parse HEAD\)/);
+  assert.match(
+    amoWorkflow,
+    /TAG_SHA=\$\(git rev-parse "\$\{TAG\}\^\{commit\}"\)/,
+  );
+  assert.match(
+    amoWorkflow,
+    /if \[ "\$HEAD_SHA" != "\$TAG_SHA" \]; then[\s\S]*?exit 1/,
+  );
+});

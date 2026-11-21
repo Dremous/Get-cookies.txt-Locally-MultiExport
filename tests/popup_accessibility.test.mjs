@@ -349,15 +349,20 @@ test('table-nowrap uses the checkbox state as the explicit class target', () => 
   assert.match(nowrapJs, /classList\.toggle\('nowrap', e\.target\.checked\)/);
 });
 
-test('Export All stays focusable and exposes a live disabled reason', () => {
+test('Export All stays focusable and exposes a non-live disabled reason', () => {
   const exportAllTag = html.match(/<button\s+id="exportAll"[\s\S]*?>/)?.[0];
   assert.ok(exportAllTag);
   assert.match(exportAllTag, /aria-describedby="exportAllHint"/);
   assert.match(exportAllTag, /aria-disabled="true"/);
   assert.doesNotMatch(exportAllTag, /\sdisabled(?=\s|>)/);
+  const hintTag = html.match(/<p\s+id="exportAllHint"[\s\S]*?>/)?.[0];
+  assert.ok(hintTag);
+  assert.doesNotMatch(hintTag, /role="status"/);
+  assert.doesNotMatch(hintTag, /aria-live=/);
+  assert.doesNotMatch(hintTag, /aria-atomic=/);
   assert.match(
     html,
-    /id="exportAllHint"[\s\S]*?role="status"[\s\S]*?aria-live="polite"[\s\S]*?aria-atomic="true"[\s\S]*?hidden/,
+    /<p id="singleStatus" class="batch-status" role="status"><\/p>/,
   );
   assert.match(popupJs, /const exportAllBlockedReason = \(\) =>/);
   assert.match(popupJs, /if \(sitesLoading\) return 'Reading cookies…';/);
@@ -368,7 +373,7 @@ test('Export All stays focusable and exposes a live disabled reason', () => {
   assert.match(popupJs, /el\.exportAllHint\.textContent = exportAllReason;/);
   assert.match(
     popupJs,
-    /document\.querySelector\('#exportAll'\)\.addEventListener\('click', async \(\) => \{\s*const blockedReason = exportAllBlockedReason\(\);\s*if \(blockedReason\) \{/s,
+    /document\.querySelector\('#exportAll'\)\.addEventListener\('click', async \(\) => \{\s*const blockedReason = exportAllBlockedReason\(\);\s*if \(blockedReason\) \{\s*setSingleStatus\(blockedReason, 'warning'\);\s*return;/s,
   );
   assert.match(
     popupJs,
@@ -376,6 +381,13 @@ test('Export All stays focusable and exposes a live disabled reason', () => {
   );
   assert.match(batchCss, /\.export-hint\s*\{[^}]*color: #8a4b00;/s);
   assert.match(batchCss, /\.export-hint\[hidden\]\s*\{[^}]*display: none;/s);
+});
+
+test('the active-site link opens in a new tab without opener access', () => {
+  assert.match(
+    html,
+    /<a id="location" target="_blank" rel="noopener noreferrer"><\/a>/,
+  );
 });
 
 test('current-site actions use the snapshot that produced the table', () => {

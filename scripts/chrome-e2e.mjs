@@ -105,6 +105,11 @@ const extractBundle = (zipPath) => {
   if (!existsSync(path.join(extensionDir, 'LICENSE'))) {
     throw new Error('Built bundle does not contain LICENSE.');
   }
+  for (const name of ['THIRD_PARTY_NOTICES.md', 'LICENSES/MPL-2.0.txt']) {
+    if (!existsSync(path.join(extensionDir, name))) {
+      throw new Error(`Built bundle does not contain ${name}.`);
+    }
+  }
   return extensionDir;
 };
 
@@ -330,6 +335,52 @@ const main = async () => {
       );
     }
     console.log(`Chrome single-site Export OK: ${path.basename(single)}`);
+
+    // This harness keeps the site tab active so the popup can read the active
+    // tab's cookies, which means the popup document cannot hold clipboard focus.
+    // Stub writeText and assert the serialized payload and visible feedback.
+    const copyProbe = await popup.evaluate(async () => {
+      const format = document.querySelector('#format');
+      format.value = 'netscape';
+      format.dispatchEvent(new Event('change', { bubbles: true }));
+      const clipboard = navigator.clipboard;
+      const originalWriteText = clipboard.writeText;
+      let copiedText = null;
+      clipboard.writeText = async (text) => {
+        copiedText = text;
+      };
+      try {
+        document.querySelector('#copy').click();
+        const started = Date.now();
+        while (Date.now() - started < 5000) {
+          if (
+            document
+              .querySelector('#singleStatus')
+              .textContent.includes('Copied')
+          ) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return {
+          copiedText,
+          status: document.querySelector('#singleStatus').textContent,
+          copied: document.querySelector('#copy').classList.contains('copied'),
+        };
+      } finally {
+        clipboard.writeText = originalWriteText;
+      }
+    });
+    if (
+      !copyProbe.copiedText?.includes('sid\t127.0.0.1') ||
+      !copyProbe.status.includes('Copied') ||
+      !copyProbe.copied
+    ) {
+      throw new Error(
+        `Chrome single-site copy failed: ${JSON.stringify(copyProbe)}`,
+      );
+    }
+    console.log('Chrome single-site copy OK');
 
     // The form controls need a real 24x24 target, not just a stylesheet rule.
     // Measure both panels while they are visible, then return to Current Site.
@@ -599,6 +650,7 @@ const main = async () => {
       const button = document.querySelector('#exportAll');
       const hint = document.querySelector('#exportAllHint');
       button.focus();
+      button.click();
       return {
         ariaDisabled: button.getAttribute('aria-disabled'),
         focused: document.activeElement === button,
@@ -606,15 +658,17 @@ const main = async () => {
         hintHidden: hint.hidden,
         hintRole: hint.getAttribute('role'),
         hintLive: hint.getAttribute('aria-live'),
+        status: document.querySelector('#singleStatus').textContent,
       };
     });
     if (
       headerExportAll.ariaDisabled !== 'true' ||
       !headerExportAll.focused ||
       headerExportAll.hintHidden ||
-      headerExportAll.hintRole !== 'status' ||
-      headerExportAll.hintLive !== 'polite' ||
-      !headerExportAll.hint.includes('single-site only')
+      headerExportAll.hintRole !== null ||
+      headerExportAll.hintLive !== null ||
+      !headerExportAll.hint.includes('single-site only') ||
+      !headerExportAll.status.includes('single-site only')
     ) {
       throw new Error(
         `Header String Export All state was wrong: ${JSON.stringify(headerExportAll)}`,

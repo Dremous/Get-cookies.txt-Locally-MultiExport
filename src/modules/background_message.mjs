@@ -1,6 +1,26 @@
 import { base64ToBytes } from './base64.mjs';
 
 /**
+ * Accept only messages sent from an extension page in this extension.
+ * Content-script and externally_connectable senders have a web URL, so they
+ * fail the extension-URL prefix check even when their `sender.id` is present.
+ * @param {unknown} sender
+ * @returns {boolean}
+ */
+const isExtensionSender = (sender) => {
+  const runtime = globalThis.chrome?.runtime;
+  if (!runtime?.id) return false;
+  if (!sender || typeof sender !== 'object') return false;
+  if (sender.id !== runtime.id) return false;
+  if (typeof sender.url !== 'string') return false;
+  try {
+    return sender.url.startsWith(runtime.getURL(''));
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Build the background-page message listener used by Firefox.
  *
  * The listener itself must stay synchronous so `return true` keeps the
@@ -13,6 +33,7 @@ import { base64ToBytes } from './base64.mjs';
  *   saveAsTimeoutMs?: number,
  *   setTimeoutFn?: (callback: () => void, delay: number) => unknown,
  *   clearTimeoutFn?: (timer: unknown) => void,
+ *   isTrustedSender?: (sender: unknown) => boolean,
  * }} options
  * @returns {(message: unknown, sender: unknown, sendResponse: (response: unknown) => void) => boolean}
  */
@@ -22,9 +43,13 @@ export const createSaveMessageListener = ({
   saveAsTimeoutMs = 5 * 60_000,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
+  isTrustedSender = isExtensionSender,
 }) => {
   if (typeof saveFile !== 'function') {
     throw new TypeError('createSaveMessageListener requires saveFile');
+  }
+  if (typeof isTrustedSender !== 'function') {
+    throw new TypeError('createSaveMessageListener requires isTrustedSender');
   }
 
   const withTimeout = (promise, timeout, message = 'Save timed out') => {
@@ -45,7 +70,8 @@ export const createSaveMessageListener = ({
     });
   };
 
-  return (message, _sender, sendResponse) => {
+  return (message, sender, sendResponse) => {
+    if (!isTrustedSender(sender)) return false;
     const { type, target, data } = message || {};
     if (target !== 'background' || type !== 'save') return false;
 

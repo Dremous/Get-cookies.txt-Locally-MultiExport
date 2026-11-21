@@ -13,9 +13,15 @@ const saveMessage = {
   },
 };
 
+const createListener = (options = {}) =>
+  createSaveMessageListener({
+    isTrustedSender: () => true,
+    ...options,
+  });
+
 test('background save listener acknowledges a successful save asynchronously', async () => {
   let received;
-  const listener = createSaveMessageListener({
+  const listener = createListener({
     saveFile: async (...args) => {
       received = args;
     },
@@ -34,7 +40,7 @@ test('background save listener acknowledges a successful save asynchronously', a
 
 test('background save listener reports a timeout instead of hanging', async () => {
   let timeoutCallback;
-  const listener = createSaveMessageListener({
+  const listener = createListener({
     saveFile: () => new Promise(() => {}),
     timeoutMs: 100,
     setTimeoutFn: (callback) => {
@@ -55,7 +61,7 @@ test('background save listener reports a timeout instead of hanging', async () =
 
 test('background save listener defaults to a one-minute timeout', () => {
   let timeoutDelay;
-  const listener = createSaveMessageListener({
+  const listener = createListener({
     saveFile: () => new Promise(() => {}),
     setTimeoutFn: (_callback, delay) => {
       timeoutDelay = delay;
@@ -74,7 +80,7 @@ test('background save listener defaults to a one-minute timeout', () => {
 test('background save listener gives saveAs a longer timeout', async () => {
   let timeoutDelay;
   let timeoutCallback;
-  const listener = createSaveMessageListener({
+  const listener = createListener({
     saveFile: () => new Promise(() => {}),
     timeoutMs: 100,
     saveAsTimeoutMs: 500,
@@ -110,7 +116,7 @@ test('background save listener gives saveAs a longer timeout', async () => {
 });
 
 test('background save listener reports save failures instead of throwing', async () => {
-  const listener = createSaveMessageListener({
+  const listener = createListener({
     saveFile: async () => {
       throw new Error('disk full');
     },
@@ -125,7 +131,7 @@ test('background save listener reports save failures instead of throwing', async
 
 test('background save listener decodes base64 payloads', async () => {
   let received;
-  const listener = createSaveMessageListener({
+  const listener = createListener({
     saveFile: async (data) => {
       received = data;
     },
@@ -155,7 +161,7 @@ test('background save listener decodes base64 payloads', async () => {
 });
 
 test('background save listener rejects missing payloads synchronously', () => {
-  const listener = createSaveMessageListener({ saveFile: async () => {} });
+  const listener = createListener({ saveFile: async () => {} });
   let response;
 
   assert.equal(
@@ -168,7 +174,7 @@ test('background save listener rejects missing payloads synchronously', () => {
 });
 
 test('background save listener ignores unrelated messages', () => {
-  const listener = createSaveMessageListener({ saveFile: async () => {} });
+  const listener = createListener({ saveFile: async () => {} });
   let called = false;
 
   assert.equal(
@@ -178,4 +184,66 @@ test('background save listener ignores unrelated messages', () => {
     false,
   );
   assert.equal(called, false);
+});
+
+test('background save listener rejects untrusted senders', () => {
+  const listener = createSaveMessageListener({
+    saveFile: async () => {},
+    isTrustedSender: () => false,
+  });
+  let called = false;
+
+  assert.equal(
+    listener(
+      saveMessage,
+      { id: 'other-extension', url: 'https://example.com' },
+      () => {
+        called = true;
+      },
+    ),
+    false,
+  );
+  assert.equal(called, false);
+});
+
+test('background save listener default sender check uses the extension URL prefix', async () => {
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = {
+    runtime: {
+      id: 'extension-id',
+      getURL: () => 'chrome-extension://extension-id/',
+    },
+  };
+  try {
+    const listener = createSaveMessageListener({ saveFile: async () => {} });
+    const response = new Promise((resolve) => {
+      assert.equal(
+        listener(
+          saveMessage,
+          {
+            id: 'extension-id',
+            url: 'chrome-extension://extension-id/popup.html',
+          },
+          resolve,
+        ),
+        true,
+      );
+    });
+    assert.deepEqual(await response, { ok: true });
+
+    let called = false;
+    assert.equal(
+      listener(
+        saveMessage,
+        { id: 'extension-id', url: 'https://example.com/content-script' },
+        () => {
+          called = true;
+        },
+      ),
+      false,
+    );
+    assert.equal(called, false);
+  } finally {
+    globalThis.chrome = previousChrome;
+  }
 });

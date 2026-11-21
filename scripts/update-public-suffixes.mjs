@@ -51,6 +51,7 @@ const output = `/* Public Suffix List data (MPL 2.0), generated from
  * ${SOURCE}
  * VERSION: ${version}
  * COMMIT: ${commit}
+ * See THIRD_PARTY_NOTICES.md and LICENSES/MPL-2.0.txt for license details.
  * Do not hand-edit; regenerate with scripts/update-public-suffixes.mjs.
  */
 ${setLiteral('PUBLIC_SUFFIX_RULES', exact)}

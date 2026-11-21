@@ -23,6 +23,7 @@ jobs:
   publish:
     name: Submit listed version to AMO
     needs: test
+    environment: amo
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,6 +31,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -40,13 +43,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify manually confirmed version
+      - name: Verify version and release tag
         env:
           EXPECTED_VERSION: ${{ inputs.version }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           if [ "$EXPECTED_VERSION" != "$VERSION" ]; then
             echo "::error::Manual version '$EXPECTED_VERSION' does not match package.json version '$VERSION'."
+            exit 1
+          fi
+          git fetch --tags --force
+          TAG="v${VERSION}"
+          if ! git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}" >/dev/null; then
+            echo "::error::Missing release tag ${TAG}; create and push the tag before publishing."
+            exit 1
+          fi
+          HEAD_SHA=$(git rev-parse HEAD)
+          TAG_SHA=$(git rev-parse "${TAG}^{commit}")
+          if [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+            echo "::error::Tag ${TAG} points to ${TAG_SHA}, but HEAD is ${HEAD_SHA}."
             exit 1
           fi
 

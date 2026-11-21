@@ -29,7 +29,8 @@ single `example.com` bucket. Two-label public suffixes such as `co.uk` or `com.c
 `shop.example.co.uk` is grouped under `example.co.uk` rather than `co.uk`. Common private suffixes such as
 `github.io`, `vercel.app`, `wixsite.com` and `s3.amazonaws.com` are also split, so `alice.github.io` and
 `bob.github.io` stay in separate buckets instead of collapsing into one `github.io` entry. The suffix table is a
-compact heuristic, not the full Public Suffix List; sites on less common shared hosts may still be grouped together.
+generated snapshot of the full [Public Suffix List](https://publicsuffix.org/list/) (MPL 2.0), refreshed with
+`npm run update-psl`.
 
 ## Install
 
@@ -66,9 +67,13 @@ If the site list is empty after loading the temporary add-on, open `about:addons
 ### Firefox AMO publishing
 
 The `Publish Firefox add-on` workflow is manual-only. Start it from GitHub Actions and enter the exact version from
-`package.json`; a tag push or release does not submit to AMO. The workflow builds the Firefox ZIP, runs the checks and
-tests, extracts the built package, and calls `web-ext sign --channel=listed --approval-timeout=0`. The command exits
-after submission; AMO review and signing continue asynchronously.
+`package.json`; a tag push or release does not submit to AMO. The workflow verifies that `v<version>` points to the
+exact commit being published, then builds the Firefox ZIP, runs the checks and tests, extracts the built package, and
+calls `web-ext sign --channel=listed --approval-timeout=0`. The command exits after submission; AMO review and signing
+continue asynchronously.
+
+The `publish` job also uses the `amo` GitHub Environment. Configure **Settings → Environments → amo** with required
+reviewers; without that protection, a manual dispatch is still only as safe as the repository's workflow permissions.
 
 Add these repository secrets:
 
@@ -149,14 +154,25 @@ Layout:
 src/
   popup.html            two-tab UI
   popup.mjs             single-site + batch wiring
+  background.html       Firefox background loader
+  background.mjs        Firefox background page entry, badge, notifications, save bridge
+  manifest-firefox.json Firefox-specific manifest overlay
   popup-batch.css       multi-site styles (light and dark)
   modules/
+    background_errors.mjs   background task error wrapper
+    background_message.mjs  Firefox popup -> background save bridge
+    badge_counter.mjs   toolbar badge counter
+    base64.mjs          binary payload conversion
+    batch_export.mjs    merged / per-site / ZIP payload builder
+    clipboard.mjs       async Clipboard API wrapper
     cookie_format.mjs   Netscape / JSON / Header serializers (upstream)
+    copy_feedback.mjs   "Copied!" feedback state
+    export_guard.mjs    shared single-site/batch re-entrancy guard
     get_all_cookies.mjs cookie store + partition handling (upstream, + batch helper)
+    public_suffix_data.mjs  generated Public Suffix List data (MPL 2.0)
     save_to_file.mjs    download helper (upstream, now binary-capable)
     site_group.mjs      registrable-domain grouping
-    public_suffix_data.mjs  generated Public Suffix List data (MPL 2.0)
-    batch_export.mjs    merged / per-site / ZIP payload builder
+    update_notification.mjs  update notification and release link
     zip_writer.mjs      dependency-free STORE-method ZIP writer
 tests/                  node:test suites
 ```
@@ -178,6 +194,13 @@ tests/                  node:test suites
   (MPL 2.0), so country-code and private suffixes such as `com.pe` and `github.io` are matched
   correctly. Regenerate the data with `npm run update-psl`.
 - The Chrome and Firefox bundles include `LICENSE` so the MIT notice travels with the distributed code.
+- The bundled Public Suffix List data is licensed under MPL 2.0; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+  and [`LICENSES/MPL-2.0.txt`](LICENSES/MPL-2.0.txt).
+
+### Chrome Web Store
+
+See [`CHROMEWEBSTORE.md`](CHROMEWEBSTORE.md) for the listing copy, permission justifications, privacy disclosures,
+and review checklist used when submitting this fork to the Chrome Web Store.
 
 ## License
 

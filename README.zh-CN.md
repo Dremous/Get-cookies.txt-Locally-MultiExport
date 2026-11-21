@@ -25,7 +25,8 @@
 都会归到 `example.com` 一个条目；`co.uk`、`com.cn` 这类二级公共后缀也做了处理，所以
 `shop.example.co.uk` 会归到 `example.co.uk` 而不是 `co.uk`。`github.io`、`vercel.app`、`wixsite.com`、
 `s3.amazonaws.com` 等常见私有公共后缀同样会拆分，`alice.github.io` 和 `bob.github.io` 会保持为两个独立条目，
-不会合并成一个 `github.io`。这张后缀表是常见场景的启发式清单，不是完整 PSL；不常见的共享主站仍可能被合并。
+不会合并成一个 `github.io`。这张后缀表是基于完整 [Public Suffix List](https://publicsuffix.org/list/)
+（MPL 2.0）生成的快照，可用 `npm run update-psl` 重新生成。
 
 ## 安装
 
@@ -61,9 +62,12 @@ npm run build:firefox
 ### Firefox AMO 手动发布
 
 `Publish Firefox add-on` workflow 只能手动触发。在 GitHub Actions 中启动时，输入与 `package.json` 完全一致的版本号；
-推送 tag 或创建 Release 都不会自动提交 AMO。workflow 会构建 Firefox ZIP、执行检查与测试，再通过
-`web-ext sign --channel=listed --approval-timeout=0` 上传并提交 AMO 审核。命令在提交后返回，审核与签名
-由 AMO 异步完成。
+推送 tag 或创建 Release 都不会自动提交 AMO。workflow 会先校验 `v<version>` tag 是否指向本次发布的提交，再构建
+Firefox ZIP、执行检查与测试，并通过 `web-ext sign --channel=listed --approval-timeout=0` 上传并提交 AMO 审核。
+命令在提交后返回，审核与签名由 AMO 异步完成。
+
+`publish` job 同时使用名为 `amo` 的 GitHub Environment。请在 **Settings → Environments → amo** 中配置 required
+reviewers；否则手动触发仍只受仓库 workflow 权限约束。
 
 需要在仓库 Secrets 中配置：
 
@@ -141,13 +145,25 @@ FIREFOX_BIN=/path/to/firefox npm run test:firefox
 src/
   popup.html            双标签界面
   popup.mjs             当前站点 + 批量导出逻辑
+  background.html       Firefox background loader
+  background.mjs        Firefox 后台入口、徽章、通知与保存消息桥
+  manifest-firefox.json Firefox 专用 manifest overlay
   popup-batch.css       多站点样式（含深色模式）
   modules/
+    background_errors.mjs   后台任务错误封装
+    background_message.mjs  Firefox popup -> background 保存消息桥
+    badge_counter.mjs   工具栏徽章计数
+    base64.mjs          二进制载荷转换
+    batch_export.mjs    合并 / 分站点 / ZIP 载荷构建
+    clipboard.mjs       异步 Clipboard API 封装
     cookie_format.mjs   Netscape / JSON / Header 序列化（上游）
+    copy_feedback.mjs   “Copied!” 反馈状态
+    export_guard.mjs    单站/批量共享的重入保护
     get_all_cookies.mjs cookie store / 分区处理（上游 + 批量辅助函数）
+    public_suffix_data.mjs  生成的 Public Suffix List 数据（MPL 2.0）
     save_to_file.mjs    下载封装（上游，现支持二进制）
     site_group.mjs      基础域名聚合
-    batch_export.mjs    合并 / 分站点 / ZIP 载荷构建
+    update_notification.mjs 更新通知与 Release 链接
     zip_writer.mjs      零依赖 STORE 模式 ZIP 写入器
 tests/                  node:test 测试
 ```
@@ -162,6 +178,13 @@ tests/                  node:test 测试
 - ZIP 采用不压缩存储 —— cookie 文件很小，这样代码更简单、可审计。
 - Firefox 支持沿用上游实现（由 background page 负责保存文件）。
 - Chrome / Firefox 发布包都会带 `LICENSE`，确保 MIT 许可声明随代码分发。
+- 内嵌的 Public Suffix List 数据使用 MPL 2.0 许可，详见
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 与 [`LICENSES/MPL-2.0.txt`](LICENSES/MPL-2.0.txt)。
+
+### Chrome Web Store
+
+Chrome Web Store 的商品文案、权限说明、隐私披露和审核检查清单见
+[`CHROMEWEBSTORE.md`](CHROMEWEBSTORE.md)。
 
 ## 许可证
 

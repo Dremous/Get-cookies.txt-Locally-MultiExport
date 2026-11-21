@@ -65,6 +65,12 @@ const build = async (version) => {
   }
   archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
   archive.file(path.join(ROOT, 'LICENSE'), { name: 'LICENSE' });
+  archive.file(path.join(ROOT, 'THIRD_PARTY_NOTICES.md'), {
+    name: 'THIRD_PARTY_NOTICES.md',
+  });
+  archive.file(path.join(ROOT, 'LICENSES', 'MPL-2.0.txt'), {
+    name: 'LICENSES/MPL-2.0.txt',
+  });
 
   await archive.finalize();
   console.log('BUILD', zipName);
