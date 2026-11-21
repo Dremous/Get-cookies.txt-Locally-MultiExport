@@ -32,6 +32,83 @@ test('background save listener acknowledges a successful save asynchronously', a
   assert.equal(received[3], false);
 });
 
+test('background save listener reports a timeout instead of hanging', async () => {
+  let timeoutCallback;
+  const listener = createSaveMessageListener({
+    saveFile: () => new Promise(() => {}),
+    timeoutMs: 100,
+    setTimeoutFn: (callback) => {
+      timeoutCallback = callback;
+      return 'save-timer';
+    },
+    clearTimeoutFn: () => {},
+  });
+
+  const response = new Promise((resolve) => {
+    assert.equal(listener(saveMessage, {}, resolve), true);
+  });
+
+  timeoutCallback();
+
+  assert.deepEqual(await response, { ok: false, error: 'Save timed out' });
+});
+
+test('background save listener defaults to a one-minute timeout', () => {
+  let timeoutDelay;
+  const listener = createSaveMessageListener({
+    saveFile: () => new Promise(() => {}),
+    setTimeoutFn: (_callback, delay) => {
+      timeoutDelay = delay;
+      return 'default-timer';
+    },
+    clearTimeoutFn: () => {},
+  });
+
+  assert.equal(
+    listener(saveMessage, {}, () => {}),
+    true,
+  );
+  assert.equal(timeoutDelay, 60_000);
+});
+
+test('background save listener gives saveAs a longer timeout', async () => {
+  let timeoutDelay;
+  let timeoutCallback;
+  const listener = createSaveMessageListener({
+    saveFile: () => new Promise(() => {}),
+    timeoutMs: 100,
+    saveAsTimeoutMs: 500,
+    setTimeoutFn: (callback, delay) => {
+      timeoutCallback = callback;
+      timeoutDelay = delay;
+      return 'save-as-timer';
+    },
+    clearTimeoutFn: () => {},
+  });
+
+  const response = new Promise((resolve) => {
+    assert.equal(
+      listener(
+        {
+          ...saveMessage,
+          data: { ...saveMessage.data, saveAs: true },
+        },
+        {},
+        resolve,
+      ),
+      true,
+    );
+  });
+
+  assert.equal(timeoutDelay, 500);
+  timeoutCallback();
+
+  assert.deepEqual(await response, {
+    ok: false,
+    error: 'Save timed out; the download may still complete in the background.',
+  });
+});
+
 test('background save listener reports save failures instead of throwing', async () => {
   const listener = createSaveMessageListener({
     saveFile: async () => {

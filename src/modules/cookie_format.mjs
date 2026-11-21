@@ -1,7 +1,8 @@
 /**
- * Netscape/Header formats cannot represent CHIPS partition keys. Collapse
- * variants that share the same domain/path/name, preferring the unpartitioned
- * cookie when both forms exist. JSON keeps every variant.
+ * Netscape/Header formats cannot represent CHIPS partition keys or Firefox
+ * first-party isolation. Collapse variants that share the same
+ * domain/path/name, preferring the unpartitioned cookie when both forms exist.
+ * JSON keeps every variant.
  * @param {chrome.cookies.Cookie[]} cookies
  * @returns {chrome.cookies.Cookie[]}
  */

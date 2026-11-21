@@ -54,6 +54,24 @@ test('badge counter ignores a slower stale query', async () => {
   assert.deepEqual(updates, [[2, '1']]);
 });
 
+test('badge counter passes the captured tab to the cookie query', async () => {
+  let receivedOptions;
+  const tab = { id: 7, url: 'https://example.com/' };
+  const counter = createBadgeCounter(
+    baseOptions({
+      getActiveTab: async () => tab,
+      getAllCookies: async (_details, options) => {
+        receivedOptions = options;
+        return cookies(2);
+      },
+    }),
+  );
+
+  await counter.update();
+
+  assert.equal(receivedOptions.activeTab, tab);
+});
+
 test('badge counter debounces repeated events to one trailing update', async () => {
   const timers = [];
   const updates = [];

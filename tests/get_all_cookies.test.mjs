@@ -98,7 +98,7 @@ test('getTabPartitionKey falls back to the schemeful site', async () => {
   });
 });
 
-test('getTabPartitionKey skips the unsupported Firefox fallback', async () => {
+test('getTabPartitionKey falls back for Firefox manifests', async () => {
   await withChrome(
     {
       runtime: {
@@ -107,15 +107,178 @@ test('getTabPartitionKey skips the unsupported Firefox fallback', async () => {
       cookies: {},
     },
     async () => {
-      assert.equal(
+      assert.deepEqual(
         await getTabPartitionKey({
           id: 7,
           url: 'https://www.example.com/a',
         }),
-        null,
+        { topLevelSite: 'https://example.com' },
       );
     },
   );
+});
+
+test('getAllCookies supplies firstPartyDomain only in Firefox', async () => {
+  const calls = [];
+  const firefoxCookies = [
+    { ...baseCookie, firstPartyDomain: '' },
+    { ...baseCookie, firstPartyDomain: 'example.com' },
+    { ...baseCookie, firstPartyDomain: 'other.example' },
+  ];
+  const firefox = {
+    runtime: {
+      getManifest: () => ({
+        incognito: 'spanning',
+        browser_specific_settings: { gecko: {} },
+      }),
+    },
+    tabs: {
+      query: async () => [
+        {
+          id: 7,
+          url: 'https://www.example.com/page',
+          cookieStoreId: 'firefox-container-1',
+        },
+      ],
+    },
+    cookies: {
+      getAll: async (details) => {
+        calls.push(details);
+        return firefoxCookies;
+      },
+    },
+  };
+
+  await withChrome(firefox, async () => {
+    const result = await getAllCookies({
+      url: 'https://www.example.com/page',
+    });
+    assert.equal(result.length, 2);
+  });
+
+  assert.equal(calls[0].firstPartyDomain, null);
+  assert.equal(calls[0].storeId, 'firefox-container-1');
+
+  const chromeCalls = [];
+  const chrome = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: {
+      query: async () => [{ id: 7, url: 'https://www.example.com/page' }],
+    },
+    cookies: {
+      getAllCookieStores: async () => [{ id: '0', tabIds: [7] }],
+      getAll: async (details) => {
+        chromeCalls.push(details);
+        return [];
+      },
+    },
+  };
+
+  await withChrome(chrome, async () => {
+    await getAllCookies({ url: 'https://www.example.com/page' });
+  });
+
+  assert.equal(chromeCalls[0].firstPartyDomain, undefined);
+});
+
+test('getAllCookies uses an explicit store snapshot without a tab lookup', async () => {
+  let tabQueries = 0;
+  const calls = [];
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: {
+      query: async () => {
+        tabQueries++;
+        return [];
+      },
+    },
+    cookies: {
+      getAll: async (details) => {
+        calls.push(details);
+        return [];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    await getAllCookies({
+      url: 'https://www.example.com/page',
+      storeId: 'container-1',
+    });
+  });
+
+  assert.equal(tabQueries, 0);
+  assert.equal(calls[0].storeId, 'container-1');
+});
+
+test('getAllCookiesForBatch uses one active-tab snapshot for both queries', async () => {
+  let tabQueries = 0;
+  const calls = [];
+  const plain = { ...baseCookie, value: 'plain' };
+  const partitionedCookie = partitioned('partitioned', false);
+  const tab = { id: 7, url: 'https://www.example.com/page' };
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: {
+      query: async () => {
+        tabQueries++;
+        return [tab];
+      },
+    },
+    cookies: {
+      getAllCookieStores: async () => [{ id: '0', tabIds: [7] }],
+      getPartitionKey: async () => ({
+        partitionKey: { topLevelSite: 'https://example.com' },
+      }),
+      getAll: async (details) => {
+        calls.push(details);
+        return details.partitionKey ? [partitionedCookie] : [plain];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    const result = await getAllCookiesForBatch(undefined, {
+      storeId: '0',
+    });
+    assert.equal(result.length, 2);
+  });
+
+  assert.equal(tabQueries, 1);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((details) => details.storeId === '0'));
+  assert.deepEqual(calls[1].partitionKey, {
+    topLevelSite: 'https://example.com',
+  });
+});
+
+test('getAllCookies can skip the unpartitioned query', async () => {
+  const calls = [];
+  const partitionedCookie = partitioned('partitioned', false);
+  const fake = {
+    runtime: { getManifest: () => ({ incognito: 'spanning' }) },
+    tabs: { query: async () => [] },
+    cookies: {
+      getAllCookieStores: async () => [],
+      getAll: async (details) => {
+        calls.push(details);
+        return [partitionedCookie];
+      },
+    },
+  };
+
+  await withChrome(fake, async () => {
+    const result = await getAllCookies(
+      { partitionKey: { topLevelSite: 'https://example.com' } },
+      { includeUnpartitioned: false },
+    );
+    assert.equal(result.length, 1);
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].partitionKey, {
+    topLevelSite: 'https://example.com',
+  });
 });
 
 test('getAllCookiesForBatch queries partitioned cookies without a URL filter', async () => {

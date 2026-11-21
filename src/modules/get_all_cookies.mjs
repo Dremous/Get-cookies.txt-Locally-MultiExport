@@ -1,4 +1,19 @@
-import { getTopLevelSite } from './site_group.mjs';
+import { getSiteKey, getTopLevelSite } from './site_group.mjs';
+
+/**
+ * Resolve the active tab only when a snapshot was not supplied. A `null`
+ * snapshot means "there is no active tab" and must not trigger another query.
+ * @param {chrome.tabs.Tab | null | undefined} tab
+ * @returns {Promise<chrome.tabs.Tab | null>}
+ */
+const getActiveTab = async (tab) => {
+  if (tab !== undefined) return tab;
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+  return activeTab ?? null;
+};
 
 /**
  * `getPartitionKey()` reports whether the frame has a cross-site ancestor as
@@ -14,18 +29,75 @@ const toQueryPartitionKey = (partitionKey) => {
   return { topLevelSite: partitionKey.topLevelSite };
 };
 
+const isFirefox = () =>
+  globalThis.chrome?.runtime?.getManifest?.()?.browser_specific_settings !==
+  undefined;
+
+/**
+ * Firefox's first-party isolation requires `firstPartyDomain` when it is
+ * enabled. Use the registrable domain of the queried URL, or `null` for a
+ * store-wide query. Chrome must not receive this Firefox-only field.
+ * @param {string | URL | undefined} value
+ * @returns {string | null}
+ */
+const getFirstPartyDomain = (value) => {
+  let url;
+  try {
+    url = value instanceof URL ? value : new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  return getSiteKey(url.hostname) || null;
+};
+
+/**
+ * Add Firefox's first-party isolation selector to a cookie query. `null` is
+ * required when isolation is enabled and also works when it is disabled; the
+ * result is filtered afterwards so normal (empty-domain) cookies are kept.
+ * @param {chrome.cookies.GetAllDetails} details
+ */
+const withFirefoxIsolation = (details) => {
+  if (!isFirefox()) return details;
+  return { ...details, firstPartyDomain: null };
+};
+
+/**
+ * When first-party isolation is enabled, Firefox returns cookies from every
+ * first-party domain. Keep normal cookies plus the current tab's domain; Chrome
+ * never receives this filter.
+ * @param {chrome.cookies.Cookie[]} cookies
+ * @param {chrome.cookies.GetAllDetails} details
+ */
+const filterFirefoxIsolation = (cookies, details) => {
+  if (!isFirefox() || !details.url) return cookies;
+  const firstPartyDomain = getFirstPartyDomain(details.url);
+  if (!firstPartyDomain) return cookies;
+  return cookies.filter((cookie) => {
+    const cookieFirstPartyDomain = getSiteKey(cookie.firstPartyDomain);
+    return (
+      !cookieFirstPartyDomain || cookieFirstPartyDomain === firstPartyDomain
+    );
+  });
+};
+
 /**
  * Get all cookies that match the given criteria.
  * @param {chrome.cookies.GetAllDetails} details
- * @param {{ onPartitionError?: (error: unknown) => void }} [options]
+ * @param {{
+ *   onPartitionError?: (error: unknown) => void,
+ *   activeTab?: chrome.tabs.Tab | null | undefined,
+ *   includeUnpartitioned?: boolean,
+ * }} [options]
  * @returns {Promise<chrome.cookies.Cookie[]>}
  */
 export default async function getAllCookies(
   details,
-  { onPartitionError } = {},
+  { onPartitionError, activeTab, includeUnpartitioned = true } = {},
 ) {
-  details.storeId ??= await getCurrentCookieStoreId();
+  details.storeId ??= await getCookieStoreId(activeTab);
   const { partitionKey, ...detailsWithoutPartitionKey } = details;
+  const queryDetails = withFirefoxIsolation(detailsWithoutPartitionKey);
   const queryPartitionKey = toQueryPartitionKey(partitionKey);
 
   // Error handling for browsers that do not support partitionKey, such as chrome < 119.
@@ -34,7 +106,7 @@ export default async function getAllCookies(
     ? await Promise.resolve()
         .then(() =>
           chrome.cookies.getAll({
-            ...detailsWithoutPartitionKey,
+            ...queryDetails,
             partitionKey: queryPartitionKey,
           }),
         )
@@ -47,13 +119,20 @@ export default async function getAllCookies(
           return [];
         })
     : [];
-  const cookies = await chrome.cookies.getAll(detailsWithoutPartitionKey);
-  return dedupeCookies([...cookies, ...cookiesWithPartitionKey]);
+  const cookies = includeUnpartitioned
+    ? await chrome.cookies.getAll(queryDetails)
+    : [];
+  return filterFirefoxIsolation(
+    dedupeCookies([...cookies, ...cookiesWithPartitionKey]),
+    detailsWithoutPartitionKey,
+  );
 }
 
 /**
- * Build the CHIPS partition key for a tab, preferring Chrome's own frame API
- * when available. The fallback derives the schemeful site from the tab URL.
+ * Build the partition key for a tab, preferring Chrome's own frame API when
+ * available. The fallback derives the schemeful site from the tab URL.
+ * Firefox does not expose `getPartitionKey()` but supports `partitionKey`
+ * queries (Firefox 94+), so it uses the same URL fallback.
  * @param {chrome.tabs.Tab | undefined} tab
  * @returns {Promise<chrome.cookies.CookiePartitionKey | null>}
  */
@@ -76,22 +155,20 @@ export const getTabPartitionKey = async (tab) => {
     }
   }
 
-  // Firefox does not expose `getPartitionKey()` and does not support CHIPS
-  // queries; skip the fallback so we do not issue a query the API will reject.
-  const manifest = globalThis.chrome?.runtime?.getManifest?.();
-  if (manifest?.browser_specific_settings !== undefined) return null;
-
   const topLevelSite = getTopLevelSite(tab.url);
   return topLevelSite ? { topLevelSite } : null;
 };
 
 /**
- * Fingerprint used to drop duplicates when merging cookie lists.
+ * Fingerprint used to drop duplicates when merging cookie lists. Firefox
+ * first-party isolation can hold the same cookie per first-party domain, so
+ * include that field as well.
  * @param {chrome.cookies.Cookie} cookie
  */
 const cookieKey = (cookie) =>
   [
     cookie.storeId ?? '',
+    cookie.firstPartyDomain ?? '',
     cookie.partitionKey?.topLevelSite ?? '',
     cookie.partitionKey?.hasCrossSiteAncestor ?? '',
     cookie.domain ?? '',
@@ -116,39 +193,57 @@ export const dedupeCookies = (cookies) => {
 /**
  * Get all cookies of the current cookie store, including partitioned cookies
  * belonging to the active tab (those are invisible to a bare getAll call).
- * @param {chrome.tabs.Tab | undefined} [tab] Optional tab snapshot to avoid
- *   racing with a second active-tab lookup.
- * @param {{ onPartitionError?: (error: unknown) => void }} [options]
+ * @param {chrome.tabs.Tab | null | undefined} [tab] Optional tab snapshot to
+ *   avoid racing with a second active-tab lookup.
+ * @param {{
+ *   storeId?: string,
+ *   onPartitionError?: (error: unknown) => void,
+ * }} [options]
  * @returns {Promise<chrome.cookies.Cookie[]>}
  */
 export async function getAllCookiesForBatch(tab, options = {}) {
-  const cookies = await getAllCookies({}, options);
+  const { onPartitionError } = options;
+  const hasStoreId = Object.hasOwn(options, 'storeId');
+  const activeTab = await getActiveTab(tab);
+  const storeId = hasStoreId
+    ? options.storeId
+    : await getCookieStoreId(activeTab);
 
-  const activeTab =
-    tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  const cookies = await getAllCookies(
+    { storeId },
+    { onPartitionError, activeTab },
+  );
+  if (!activeTab) return cookies;
+
   const partitionKey = await getTabPartitionKey(activeTab);
   if (!partitionKey) return cookies;
 
   // Query by partition key only: `url` would restrict the result to the
   // top-level page's own domain and hide third-party partitioned cookies.
-  const partitioned = await getAllCookies({ partitionKey }, options);
+  // The base query already returned the unpartitioned cookies, so skip a
+  // second full-store query inside the partition call.
+  const partitioned = await getAllCookies(
+    { storeId, partitionKey },
+    { onPartitionError, activeTab, includeUnpartitioned: false },
+  );
   return dedupeCookies([...cookies, ...partitioned]);
 }
 
 /**
- * Get the current cookie store ID.
+ * Get the cookie store ID for a tab snapshot. Passing `null` means there is no
+ * active tab; passing `undefined` requests the current active tab.
+ * @param {chrome.tabs.Tab | null | undefined} [tab]
  * @returns {Promise<string | undefined>}
  */
-const getCurrentCookieStoreId = async () => {
+export const getCookieStoreId = async (tab) => {
   // If the extension is in split incognito mode, return undefined to choose the default store.
   if (chrome.runtime.getManifest().incognito === 'split') return undefined;
 
-  // Firefox supports the `tab.cookieStoreId` property.
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return undefined;
-  if (tab.cookieStoreId) return tab.cookieStoreId;
+  const activeTab = await getActiveTab(tab);
+  if (!activeTab) return undefined;
+  if (activeTab.cookieStoreId) return activeTab.cookieStoreId;
 
   // Chrome does not support the `tab.cookieStoreId` property.
   const stores = await chrome.cookies.getAllCookieStores();
-  return stores.find((store) => store.tabIds.includes(tab.id))?.id;
+  return stores.find((store) => store.tabIds.includes(activeTab.id))?.id;
 };

@@ -97,7 +97,8 @@ manifest/package 版本。
 
 - **Netscape** —— 标准 `cookies.txt`，适用于 `wget --load-cookies`、`curl -b`、`MozillaCookieJar`、yt-dlp 等。
   `HttpOnly` cookie 使用 `#HttpOnly_` 前缀。Netscape 没有 CHIPS 分区键字段；同一 domain/path/name 的多个变体
-  会优先保留未分区版本，只有分区版本时合并为一行。
+  会优先保留未分区版本，只有分区版本时合并为一行。Firefox 第一方隔离（`firstPartyDomain`）的同名变体也会在
+  Netscape/Header 输出中合并；需要保留全部 `firstPartyDomain` 变体时请使用 JSON。
 - **JSON** —— `chrome.cookies.Cookie` 原始对象数组，保留 `partitionKey` 与全部 CHIPS 变体。
 - **Header String** —— `name=value; name=value;`，可直接粘贴到 `Cookie` 请求头。该格式仅支持单站点导出；
   多站点面板不提供此选项，因为一个请求头无法区分多个域名。与 Netscape 一样无法表示分区键，采用相同的合并规则。

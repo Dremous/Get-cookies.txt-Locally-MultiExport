@@ -96,6 +96,30 @@ test('combined JSON export stays a flat cookie array', () => {
   assert.equal(parsed[0].domain, '.example.com');
 });
 
+test('text formats collapse firstPartyDomain variants but JSON keeps them', () => {
+  const base = cookie('.example.com', 'sid', {
+    firstPartyDomain: 'example.com',
+  });
+  const variant = cookie('.example.com', 'sid', {
+    firstPartyDomain: 'other.example',
+  });
+  const group = [{ site: 'example.com', cookies: [base, variant] }];
+
+  const netscape = serializeCombined(group, 'netscape');
+  assert.equal(
+    netscape.split('\n').filter((line) => line.includes('\t')).length,
+    1,
+  );
+
+  const header = serializeCombined(group, 'header');
+  assert.equal(header.trim().split('\n').length, 1);
+
+  const parsed = JSON.parse(serializeCombined(group, 'json'));
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].firstPartyDomain, 'example.com');
+  assert.equal(parsed[1].firstPartyDomain, 'other.example');
+});
+
 test('zip mode returns one archive with a file per site', () => {
   const { files, totalCookies } = buildBatchExport({
     groups,

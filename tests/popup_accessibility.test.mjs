@@ -14,6 +14,14 @@ const batchCss = readFileSync(
   new URL('../src/popup-batch.css', import.meta.url),
   'utf8',
 );
+const darkCss = readFileSync(
+  new URL('../src/popup.dark.css', import.meta.url),
+  'utf8',
+);
+const donationCss = readFileSync(
+  new URL('../src/donation.css', import.meta.url),
+  'utf8',
+);
 const popupJs = readFileSync(
   new URL('../src/popup.mjs', import.meta.url),
   'utf8',
@@ -64,13 +72,60 @@ test('tabs expose the ARIA tab pattern and roving tabindex', () => {
 
 test('search, table, and icons have accessible names', () => {
   assert.match(html, /aria-label="Filter sites"/);
-  assert.match(html, /<caption class="visually-hidden">/);
+  assert.match(html, /id="cookiesTableCaption" class="visually-hidden"/);
+  assert.match(
+    html,
+    /class="table-container"[\s\S]*?tabindex="0"[\s\S]*?role="region"[\s\S]*?aria-labelledby="cookiesTableCaption"/,
+  );
   assert.equal((html.match(/<th scope="col">/g) || []).length, 7);
   assert.equal(
     (html.match(/class="material-symbols-outlined" aria-hidden="true"/g) || [])
       .length,
     9,
   );
+});
+
+test('single-site actions start disabled and the table container can take focus', () => {
+  for (const id of ['export', 'exportAs', 'copy', 'exportAll']) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*disabled`));
+  }
+  assert.match(popupCss, /\.table-container:focus-visible\s*\{/);
+  assert.match(darkCss, /\.table-container:focus-visible\s*\{/);
+  assert.match(popupJs, /const updateSingleActionState = \(\) =>/);
+  assert.match(popupJs, /el\.copyButton\.disabled = blocked;/);
+  assert.match(
+    popupJs,
+    /el\.exportAllButton\.disabled =\s*hostPermissionMissing \|\| exportGuard\.busy \|\| !sitesReady;/,
+  );
+});
+
+test('single and batch actions share one re-entrancy guard', () => {
+  assert.match(popupJs, /const beginExclusiveAction = \(\) =>/);
+  assert.match(popupJs, /const endExclusiveAction = \(\) =>/);
+  assert.equal(
+    (popupJs.match(/if \(!beginExclusiveAction\(\)\) return;/g) || []).length,
+    6,
+  );
+  for (const id of ['export', 'exportAs', 'copy', 'exportAll']) {
+    const start = popupJs.indexOf(
+      `document.querySelector('#${id}').addEventListener`,
+    );
+    const end = popupJs.indexOf('});', start);
+    const block = popupJs.slice(start, end);
+    assert.match(block, /if \(!beginExclusiveAction\(\)\) return;/);
+    assert.match(block, /finally \{\s*endExclusiveAction\(\);/s);
+  }
+  const batchStart = popupJs.indexOf('el.batchCopy.addEventListener');
+  const batchEnd = popupJs.indexOf('});', batchStart);
+  assert.match(
+    popupJs.slice(batchStart, batchEnd),
+    /if \(!beginExclusiveAction\(\)\) return;/,
+  );
+  assert.equal(
+    (popupJs.match(/finally \{\s*endExclusiveAction\(\);/g) || []).length,
+    6,
+  );
+  assert.match(popupJs, /exportGuard\.busy \|\|\s*!hasSites/);
 });
 
 test('popup CSS avoids CSS nesting and keeps a visible status region', () => {
@@ -93,7 +148,8 @@ test('interactive controls have visible focus and minimum target sizes', () => {
 });
 
 test('single-site initialization surfaces errors instead of swallowing them', () => {
-  assert.match(popupJs, /initializeSingleSite\(\)\.catch\(/);
+  assert.match(popupJs, /const handleSingleSiteError = \(error\) =>/);
+  assert.match(popupJs, /\.catch\(handleSingleSiteError\)/);
   assert.match(popupJs, /Could not read cookies: \$\{error\.message\}/);
   assert.doesNotMatch(
     popupJs,
@@ -106,14 +162,111 @@ test('copy and dark error colors meet WCAG AA contrast', () => {
   assert.ok(contrastRatio('#ff8a80', '#2a2a2a') >= 4.5);
   assert.ok(contrastRatio('#8a4b00', '#fdfbff') >= 4.5);
   assert.ok(contrastRatio('#ffb86b', '#2a2a2a') >= 4.5);
+  assert.ok(contrastRatio('#8a8a8a', '#3a3a3a') >= 3);
+  assert.ok(contrastRatio('#e09200', '#2a2a2a') >= 3);
+  assert.ok(contrastRatio('#8a8a8a', '#1e1e1e') >= 3);
+  assert.ok(contrastRatio('#8a8a8a', '#2a2a2a') >= 3);
   assert.match(popupCss, /background-color: #2b6f9e;/);
   assert.match(batchCss, /color: #ff8a80;/);
+  assert.match(batchCss, /border-color: #8a8a8a;/);
+  assert.match(batchCss, /\.site-list \{\s*border-color: #8a8a8a;/);
+  assert.match(batchCss, /\.site-item \{\s*border-bottom-color: #8a8a8a;/);
+  assert.match(darkCss, /border: solid 1px #8a8a8a;/);
+  assert.match(
+    darkCss,
+    /\.netscape-table th,\s*\.netscape-table td \{\s*border: solid 1px #8a8a8a;/,
+  );
+  assert.match(donationCss, /outline-color: #e09200;/);
 });
 
-test('loadSites failure does not overwrite the single-site status', () => {
-  const tail = popupJs.slice(popupJs.lastIndexOf('loadSites().catch'));
-  assert.match(tail, /setBatchStatus/);
-  assert.doesNotMatch(tail, /setSingleStatus/);
+test('active-tab refresh shares one snapshot across panels', () => {
+  const start = popupJs.indexOf('const refreshActiveTab =');
+  const end = popupJs.indexOf('refreshActiveTab();', start);
+  const block = popupJs.slice(start, end);
+  assert.match(block, /const snapshot = await getActiveTabSnapshot\(\);/);
+  assert.match(block, /refreshSingleSite\(snapshot, permissionMissing\)/);
+  assert.match(block, /loadSites\(snapshot, permissionMissing\)/);
+});
+
+test('active-tab refresh reacts to URL and permission changes', () => {
+  assert.match(popupJs, /chrome\.tabs\.onActivated\.addListener/);
+  assert.match(popupJs, /chrome\.tabs\.onUpdated\.addListener/);
+  assert.match(popupJs, /changeInfo\.url/);
+  assert.match(popupJs, /chrome\.permissions\?\.onAdded\?\.addListener/);
+  assert.match(popupJs, /chrome\.permissions\?\.onRemoved\?\.addListener/);
+});
+
+test('host permission is checked for every browser', () => {
+  assert.doesNotMatch(popupJs, /if \(!isFirefox\(\)\) return true;/);
+  assert.match(popupJs, /return await chrome\.permissions\.contains/);
+});
+
+test('active-tab refresh failure enters an error state and disables actions', () => {
+  const start = popupJs.indexOf('const handleRefreshError =');
+  const end = popupJs.indexOf('let singleSiteRefresh', start);
+  const block = popupJs.slice(start, end);
+  assert.match(block, /singleSiteReady = false;/);
+  assert.match(block, /sitesReady = false;/);
+  assert.match(block, /currentSiteKey = '';/);
+  assert.match(block, /selectedSites\.clear\(\);/);
+  assert.match(block, /clearLocation\(\);/);
+  assert.match(block, /updateSingleActionState\(\);/);
+  assert.match(block, /setSingleStatus/);
+  assert.match(block, /setBatchStatus/);
+
+  const refreshStart = popupJs.indexOf('const refreshActiveTab =');
+  const refreshEnd = popupJs.indexOf('refreshActiveTab();', refreshStart);
+  assert.match(
+    popupJs.slice(refreshStart, refreshEnd),
+    /handleRefreshError\(error, permissionMissing\)/,
+  );
+});
+
+test('refresh success clears old status and gates batch actions', () => {
+  assert.match(popupJs, /const hasSites = sitesReady && sites\.length > 0;/);
+  assert.match(popupJs, /!hasSites/);
+  assert.match(popupJs, /setSingleStatus\(''\)/);
+  assert.match(popupJs, /setBatchStatus\(''\)/);
+});
+
+test('batch selection drops sites that disappeared after a refresh', () => {
+  assert.match(popupJs, /for \(const site of \[\.\.\.selectedSites\]\)/);
+  assert.match(popupJs, /selectedSites\.delete\(site\)/);
+});
+
+test('batch selection falls back to the current site when stored sites are gone', () => {
+  const start = popupJs.indexOf('const loadSites =');
+  const end = popupJs.indexOf('persistSelection();', start);
+  const block = popupJs.slice(start, end);
+  assert.match(block, /selectedSites\.clear\(\);/);
+  assert.match(
+    block,
+    /stored\.length > 0 &&\s*selectedSites\.size === 0 &&\s*currentSiteKey &&\s*sites\.some\(\(entry\) => entry\.site === currentSiteKey\)/s,
+  );
+  assert.match(block, /selectedSites\.add\(currentSiteKey\)/);
+});
+
+test('starting a new site refresh clears stale rows and disables actions', () => {
+  const start = popupJs.indexOf('const initializeSingleSite =');
+  const end = popupJs.indexOf('const handleSingleSiteError', start);
+  const block = popupJs.slice(start, end);
+  assert.ok(
+    block.indexOf('singleSiteReady = false') <
+      block.indexOf('await getActiveTabSnapshot'),
+  );
+  assert.match(block, /#netscapeTable tbody'\)\.replaceChildren\(\)/);
+  assert.match(block, /setSingleStatus\('Reading cookies…'\)/);
+  assert.match(block, /clearLocation\(\);/);
+  assert.match(block, /setLocation\(url\)/);
+});
+
+test('table header stays visible while scrolling', () => {
+  assert.match(popupCss, /\.table-container \{\s*[^}]*overflow: auto;/s);
+  assert.match(
+    popupCss,
+    /\.netscape-table \{\s*border-collapse: separate;\s*border-spacing: 0;/s,
+  );
+  assert.match(popupCss, /\.netscape-table thead \{\s*position: sticky;/s);
 });
 
 test('Firefox host-permission guidance and partition warnings are visible', () => {
@@ -123,6 +276,10 @@ test('Firefox host-permission guidance and partition warnings are visible', () =
   assert.match(popupJs, /onPartitionError/);
   assert.match(popupJs, /Some partitioned cookies could not be read/);
   assert.match(batchCss, /\[data-kind="warning"\]/);
+  assert.match(
+    popupJs,
+    /catch \(error\) \{\s*console\.warn\('\[permissions\] host permission check failed', error\);\s*return false;/,
+  );
 });
 
 test('table-nowrap uses the checkbox state as the explicit class target', () => {

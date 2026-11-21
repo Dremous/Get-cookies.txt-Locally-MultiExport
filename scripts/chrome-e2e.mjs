@@ -165,14 +165,62 @@ const main = async () => {
 
     const popup = await browser.newPage();
     await popup.goto(popupUrl);
-    await popup.waitForFunction(
-      () => document.querySelectorAll('.site-item').length >= 2,
-      { timeout: 15000 },
-    );
+    await sitePage.bringToFront();
+    // In headless Chrome the extension page can remain the active tab even
+    // after bringToFront. Activate the site tab through the tabs API so the
+    // popup observes the same active-tab state a real toolbar popup would.
+    await popup.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const siteTab = tabs.find((tab) =>
+        tab.url?.startsWith('http://127.0.0.1'),
+      );
+      if (!siteTab) throw new Error('Could not find the test site tab');
+      await chrome.tabs.update(siteTab.id, { active: true });
+    });
 
-    // CHIPS probe: the cookie below is created under the top-level site
-    // 127.0.0.1 and gets hasCrossSiteAncestor=true. A getAll query that passes
-    // the full getPartitionKey() object (which includes false) would miss it.
+    try {
+      await popup.waitForFunction(
+        () =>
+          document.querySelectorAll('.site-item').length >= 2 &&
+          !document.querySelector('#export').disabled &&
+          !document.querySelector('#exportAll').disabled,
+        { timeout: 15000, polling: 100 },
+      );
+    } catch (error) {
+      console.error(
+        'Popup state before failure:',
+        await popup.evaluate(() => ({
+          siteItems: document.querySelectorAll('.site-item').length,
+          batchStatus: document.querySelector('#batchStatus')?.textContent,
+          singleStatus: document.querySelector('#singleStatus')?.textContent,
+          exportDisabled: document.querySelector('#export')?.disabled,
+          exportAllDisabled: document.querySelector('#exportAll')?.disabled,
+        })),
+      );
+      throw error;
+    }
+
+    // Verify the background badge path against a real active tab and cookie
+    // store, rather than only the badge counter unit tests.
+    const badgeText = await popup.evaluate(async () => {
+      const started = Date.now();
+      while (Date.now() - started < 10000) {
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (!tab?.id) return null;
+        const text = await chrome.action.getBadgeText({ tabId: tab.id });
+        if (/^\d+$/.test(text) && Number(text) > 0) return text;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return null;
+    });
+    if (!badgeText) {
+      throw new Error('Chrome badge did not reflect the active site cookies.');
+    }
+    console.log(`Chrome badge OK: ${badgeText}`);
+
     const partitionCookie = await popup.evaluate(
       async ({ port }) => {
         const cookie = await chrome.cookies.set({
@@ -278,6 +326,88 @@ const main = async () => {
     }
     console.log(`Chrome single-site Export OK: ${path.basename(single)}`);
 
+    // Export As uses the downloads API with saveAs=true. Stub only the
+    // downloader so the browser-level popup path can be checked without a
+    // native save dialog blocking the test.
+    const exportAsProbe = await popup.evaluate(async () => {
+      const originalDownload = chrome.downloads.download;
+      const calls = [];
+      chrome.downloads.download = async (details) => {
+        calls.push(details);
+        return 4242;
+      };
+      try {
+        document.querySelector('#exportAs').click();
+        const started = Date.now();
+        while (Date.now() - started < 3000) {
+          if (
+            document
+              .querySelector('#singleStatus')
+              .textContent.includes('Started export for')
+          ) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return {
+          calls,
+          status: document.querySelector('#singleStatus').textContent,
+          busy: document.querySelector('#export').disabled,
+        };
+      } finally {
+        chrome.downloads.download = originalDownload;
+      }
+    });
+    if (
+      exportAsProbe.calls.length !== 1 ||
+      exportAsProbe.calls[0].saveAs !== true
+    ) {
+      throw new Error(
+        `Export As did not request saveAs=true: ${JSON.stringify(exportAsProbe)}`,
+      );
+    }
+    console.log('Chrome Export As saveAs path OK');
+    await popup.waitForFunction(
+      () => !document.querySelector('#export').disabled,
+      { timeout: 3000, polling: 50 },
+    );
+
+    // A second Export As while one is still pending must be rejected by the
+    // shared action guard. The downloader is held for 300 ms so the second
+    // click arrives while the first handler is still inside the guard.
+    const doubleGuard = await popup.evaluate(async () => {
+      const originalDownload = chrome.downloads.download;
+      const calls = [];
+      chrome.downloads.download = (details) =>
+        new Promise((resolve) => {
+          calls.push(details);
+          setTimeout(() => resolve(5151), 300);
+        });
+      try {
+        const button = document.querySelector('#exportAs');
+        button.click();
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return {
+          calls,
+          status: document.querySelector('#singleStatus').textContent,
+          disabled: button.disabled,
+        };
+      } finally {
+        chrome.downloads.download = originalDownload;
+      }
+    });
+    if (doubleGuard.calls.length !== 1) {
+      throw new Error(
+        `Rapid double-click reached the downloader ${doubleGuard.calls.length} times: ${JSON.stringify(doubleGuard)}`,
+      );
+    }
+    console.log('Chrome single-site re-entrancy OK');
+    await popup.waitForFunction(
+      () => !document.querySelector('#export').disabled,
+      { timeout: 3000, polling: 50 },
+    );
+
     // Export All Cookies has a fixed base name and includes every site.
     await popup.evaluate(() => document.querySelector('#exportAll').click());
     const allName = 'cookies.txt';
@@ -312,6 +442,40 @@ const main = async () => {
       await waitForDownload(downloadDir, new RegExp(`^${escapeRegex(name)}$`));
     }
     console.log(`Chrome separate downloads OK: ${separateNames.join(', ')}`);
+
+    const sticky = await popup.evaluate(async () => {
+      document.querySelector('#tabSingle').click();
+      const table = document.querySelector('#netscapeTable');
+      const body = table.querySelector('tbody');
+      const template = body.querySelector('tr');
+      if (template) {
+        for (let index = 0; index < 80; index += 1) {
+          body.append(template.cloneNode(true));
+        }
+      }
+      const container = table.closest('.table-container');
+      const header = table.querySelector('thead');
+      container.scrollTop = 0;
+      const before = header.getBoundingClientRect().top;
+      container.scrollTop = 180;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const after = header.getBoundingClientRect().top;
+      return {
+        position: getComputedStyle(header).position,
+        delta: Math.abs(after - before),
+        scrollTop: container.scrollTop,
+      };
+    });
+    if (
+      sticky.position !== 'sticky' ||
+      sticky.scrollTop === 0 ||
+      sticky.delta > 2
+    ) {
+      throw new Error(
+        `Sticky table header check failed: ${JSON.stringify(sticky)}`,
+      );
+    }
+    console.log('Chrome sticky table header OK');
   } finally {
     if (browser) await browser.close();
     serverInfo.server.close();

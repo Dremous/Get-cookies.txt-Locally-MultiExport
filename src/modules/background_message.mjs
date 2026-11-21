@@ -7,13 +7,43 @@ import { base64ToBytes } from './base64.mjs';
  * message channel open. The save work runs in an async IIFE and reports
  * success/failure through `sendResponse`.
  *
- * @param {{ saveFile: (data: string | Uint8Array, name: string, format: { ext: string, mimeType: string }, saveAs: boolean) => Promise<void> }} options
+ * @param {{
+ *   saveFile: (data: string | Uint8Array, name: string, format: { ext: string, mimeType: string }, saveAs: boolean) => Promise<void>,
+ *   timeoutMs?: number,
+ *   saveAsTimeoutMs?: number,
+ *   setTimeoutFn?: (callback: () => void, delay: number) => unknown,
+ *   clearTimeoutFn?: (timer: unknown) => void,
+ * }} options
  * @returns {(message: unknown, sender: unknown, sendResponse: (response: unknown) => void) => boolean}
  */
-export const createSaveMessageListener = ({ saveFile }) => {
+export const createSaveMessageListener = ({
+  saveFile,
+  timeoutMs = 60_000,
+  saveAsTimeoutMs = 5 * 60_000,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+}) => {
   if (typeof saveFile !== 'function') {
     throw new TypeError('createSaveMessageListener requires saveFile');
   }
+
+  const withTimeout = (promise, timeout, message = 'Save timed out') => {
+    if (!Number.isFinite(timeout) || timeout <= 0) return promise;
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeoutFn(() => reject(new Error(message)), timeout);
+      promise.then(
+        (value) => {
+          clearTimeoutFn(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeoutFn(timer);
+          reject(error);
+        },
+      );
+    });
+  };
 
   return (message, _sender, sendResponse) => {
     const { type, target, data } = message || {};
@@ -29,6 +59,8 @@ export const createSaveMessageListener = ({ saveFile }) => {
     }
 
     const respond = (response) => {
+      if (responded) return;
+      responded = true;
       try {
         sendResponse?.(response);
       } catch {
@@ -36,6 +68,7 @@ export const createSaveMessageListener = ({ saveFile }) => {
       }
     };
 
+    let responded = false;
     let content;
     try {
       content = hasText ? text : base64ToBytes(base64);
@@ -49,7 +82,14 @@ export const createSaveMessageListener = ({ saveFile }) => {
 
     (async () => {
       try {
-        await saveFile(content, name, format, Boolean(saveAs));
+        const save = Promise.resolve().then(() =>
+          saveFile(content, name, format, Boolean(saveAs)),
+        );
+        const timeout = saveAs ? saveAsTimeoutMs : timeoutMs;
+        const timeoutMessage = saveAs
+          ? 'Save timed out; the download may still complete in the background.'
+          : 'Save timed out';
+        await withTimeout(save, timeout, timeoutMessage);
         respond({ ok: true });
       } catch (error) {
         respond({

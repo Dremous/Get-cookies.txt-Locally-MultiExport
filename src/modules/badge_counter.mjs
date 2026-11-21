@@ -10,7 +10,7 @@ const DEFAULT_DEBOUNCE_MS = 80;
  * @param {{
  *   getActiveTab: () => Promise<{ id?: number, url?: string } | undefined>,
  *   getPartitionKey: (tab: { id?: number, url?: string }) => Promise<chrome.cookies.CookiePartitionKey | null>,
- *   getAllCookies: (details: chrome.cookies.GetAllDetails) => Promise<chrome.cookies.Cookie[]>,
+ *   getAllCookies: (details: chrome.cookies.GetAllDetails, options?: { activeTab?: chrome.tabs.Tab | null }) => Promise<chrome.cookies.Cookie[]>,
  *   setBadgeText: (tabId: number, text: string) => Promise<void>,
  *   debounceMs?: number,
  *   setTimeoutFn?: (callback: () => void, delay: number) => unknown,
@@ -77,7 +77,7 @@ export const createBadgeCounter = ({
 
       const details = { url: url.href };
       if (partitionKey) details.partitionKey = partitionKey;
-      const cookies = await getAllCookies(details);
+      const cookies = await getAllCookies(details, { activeTab: tab });
       if (run !== generation) return;
 
       await setBadgeText(tabId, cookies.length.toFixed());

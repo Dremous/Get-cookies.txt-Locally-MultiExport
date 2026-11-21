@@ -9,6 +9,7 @@ import { formatMap, jsonToNetscapeMapper } from './modules/cookie_format.mjs';
 import { createExportGuard } from './modules/export_guard.mjs';
 import getAllCookies, {
   getAllCookiesForBatch,
+  getCookieStoreId,
   getTabPartitionKey,
 } from './modules/get_all_cookies.mjs';
 import _saveToFile from './modules/save_to_file.mjs';
@@ -19,14 +20,21 @@ import {
 } from './modules/site_group.mjs';
 
 /**
- * Read the active tab, its URL and its partition key from one tab snapshot.
- * Keeping these values together prevents an export from mixing a stale URL
- * with a partition key taken from a different tab.
- * @returns {Promise<{ tab: chrome.tabs.Tab | null, url: URL | null, partitionKey: chrome.cookies.CookiePartitionKey | null }>}
+ * Read the active tab, its URL, partition key and cookie store from one tab
+ * snapshot. Keeping these values together prevents an export from mixing a
+ * stale URL with state taken from a different tab.
+ * @returns {Promise<{
+ *   tab: chrome.tabs.Tab | null,
+ *   url: URL | null,
+ *   partitionKey: chrome.cookies.CookiePartitionKey | null,
+ *   storeId: string | undefined,
+ * }>}
  */
 const getActiveTabSnapshot = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return { tab: null, url: null, partitionKey: null };
+  if (!tab) {
+    return { tab: null, url: null, partitionKey: null, storeId: undefined };
+  }
 
   let url = null;
   try {
@@ -35,11 +43,12 @@ const getActiveTabSnapshot = async () => {
     url = null;
   }
 
-  return {
-    tab,
-    url,
-    partitionKey: await getTabPartitionKey(tab),
-  };
+  const [partitionKey, storeId] = await Promise.all([
+    getTabPartitionKey(tab),
+    getCookieStoreId(tab),
+  ]);
+
+  return { tab, url, partitionKey, storeId };
 };
 
 const STORAGE_FORMAT = 'selectedFormat';
@@ -51,19 +60,26 @@ const isFirefox = () =>
   chrome.runtime.getManifest().browser_specific_settings !== undefined;
 
 /**
- * Firefox MV3 host access is opt-in. Chrome returns true immediately because
- * the extension is already granted the manifest host permission there.
+ * Host access is required for `chrome.cookies.getAll()`. Firefox makes it
+ * opt-in after install; Chrome can also lose it when the user changes the
+ * extension's site access setting. Check the actual permission instead of
+ * assuming that the manifest grant is still active.
  * @returns {Promise<boolean>}
  */
 const hasHostPermission = async () => {
-  if (!isFirefox()) return true;
   try {
-    if (typeof chrome.permissions?.contains !== 'function') return true;
+    if (typeof chrome.permissions?.contains !== 'function') return false;
     return await chrome.permissions.contains({ origins: ['<all_urls>'] });
-  } catch {
-    return true;
+  } catch (error) {
+    console.warn('[permissions] host permission check failed', error);
+    return false;
   }
 };
+
+const hostPermissionMessage = () =>
+  isFirefox()
+    ? 'Firefox host permission is required. Open about:addons, open Permissions, and enable "Access your data for all websites", then reopen this popup.'
+    : 'Host permission is required. Open the extension settings and allow access to all websites, then reopen this popup.';
 
 /** @param {string} formatKey */
 const getFormat = (formatKey) =>
@@ -81,6 +97,12 @@ const selectedSites = new Set();
 let currentSiteKey = '';
 /** @type {boolean} */
 let hostPermissionMissing = false;
+/** @type {boolean} */
+let singleSiteReady = false;
+/** @type {boolean} */
+let sitesReady = false;
+/** @type {string | null} */
+let sitesLoadError = null;
 const exportGuard = createExportGuard();
 
 // ----------------------------------------------
@@ -106,6 +128,10 @@ const el = {
   tabMulti: document.querySelector('#tabMulti'),
   panelSingle: document.querySelector('#singlePanel'),
   panelMulti: document.querySelector('#multiPanel'),
+  copyButton: document.querySelector('#copy'),
+  exportButton: document.querySelector('#export'),
+  exportAsButton: document.querySelector('#exportAs'),
+  exportAllButton: document.querySelector('#exportAll'),
 };
 
 // ----------------------------------------------
@@ -115,13 +141,15 @@ const el = {
 /**
  * Get Stringified Cookies Text and Format Data
  * @param {chrome.cookies.GetAllDetails} details
- * @param {string} [formatKey]
+ * @param {string} formatKey
+ * @param {chrome.tabs.Tab | null} [activeTab]
  * @returns {Promise<{ text: string, format: Format, warnings: unknown[] }>}
  */
-const getCookieText = async (details, formatKey = el.format.value) => {
+const getCookieText = async (details, formatKey, activeTab) => {
   const warnings = [];
   const cookies = await getAllCookies(details, {
     onPartitionError: (error) => warnings.push(error),
+    activeTab,
   });
   const format = getFormat(formatKey);
   if (!format) throw new Error('Invalid format');
@@ -203,6 +231,36 @@ const setSingleStatus = (message, kind = 'info') => {
   el.singleStatus.dataset.kind = kind;
 };
 
+/**
+ * Clear the active-page link when the popup no longer has a trustworthy URL
+ * (for example after losing host permission or after a refresh error).
+ */
+const clearLocation = () => {
+  el.location.textContent = '';
+  el.location.removeAttribute('href');
+};
+
+/** @param {URL | null} url */
+const setLocation = (url) => {
+  el.location.textContent = url?.href ?? 'this page';
+  if (url) el.location.href = url.href;
+  else el.location.removeAttribute('href');
+};
+
+/**
+ * Disable actions that cannot run without a resolved active site. Export All
+ * needs host access and a successfully loaded batch list, but not a page URL:
+ * it can still read the current cookie store when the active tab is internal.
+ */
+const updateSingleActionState = () => {
+  const blocked = hostPermissionMissing || !singleSiteReady || exportGuard.busy;
+  el.copyButton.disabled = blocked;
+  el.exportButton.disabled = blocked;
+  el.exportAsButton.disabled = blocked;
+  el.exportAllButton.disabled =
+    hostPermissionMissing || exportGuard.busy || !sitesReady;
+};
+
 const persistSelection = () => {
   localStorage.setItem(
     STORAGE_BATCH_SELECTION,
@@ -223,15 +281,46 @@ const updateSummary = () => {
   const selectedVisible = visibleSites.filter((entry) =>
     selectedSites.has(entry.site),
   ).length;
-  el.selectionText.textContent = `${selectedSites.size} of ${sites.length} sites selected${
-    visibleSites.length !== sites.length
-      ? ` (${selectedVisible} of ${visibleSites.length} shown)`
-      : ''
-  }`;
-  el.cookieCountText.textContent = `${selectedCookieCount()} cookies`;
+  const hasSites = sitesReady && sites.length > 0;
+  el.selectionText.textContent = hasSites
+    ? `${selectedSites.size} of ${sites.length} sites selected${
+        visibleSites.length !== sites.length
+          ? ` (${selectedVisible} of ${visibleSites.length} shown)`
+          : ''
+      }`
+    : '0 of 0 sites selected';
+  el.cookieCountText.textContent = sitesReady
+    ? `${selectedCookieCount()} cookies`
+    : '0 cookies';
   el.siteCountBadge.textContent = `(${sites.length})`;
-  el.batchExport.disabled = exportGuard.busy || selectedSites.size === 0;
-  el.batchCopy.disabled = exportGuard.busy || selectedSites.size === 0;
+  el.batchExport.disabled =
+    exportGuard.busy ||
+    !hasSites ||
+    selectedSites.size === 0 ||
+    hostPermissionMissing;
+  el.batchCopy.disabled =
+    exportGuard.busy ||
+    !hasSites ||
+    selectedSites.size === 0 ||
+    hostPermissionMissing;
+};
+
+/**
+ * Start an action that must not overlap another download or clipboard write.
+ * The guard is shared with the batch actions, so a single-site export cannot
+ * race a batch export (or a rapid double-click of the same button).
+ */
+const beginExclusiveAction = () => {
+  if (!exportGuard.begin()) return false;
+  updateSingleActionState();
+  updateSummary();
+  return true;
+};
+
+const endExclusiveAction = () => {
+  exportGuard.end();
+  updateSingleActionState();
+  updateSummary();
 };
 
 const renderSiteList = () => {
@@ -246,8 +335,9 @@ const renderSiteList = () => {
     if (query) {
       empty.textContent = 'No site matches this filter.';
     } else if (hostPermissionMissing) {
-      empty.textContent =
-        'Firefox has not granted access to all websites. Open about:addons, open Permissions, and enable "Access your data for all websites". Reopen this popup after granting access.';
+      empty.textContent = hostPermissionMessage();
+    } else if (sitesLoadError) {
+      empty.textContent = sitesLoadError;
     } else {
       empty.textContent = 'No cookies found in this cookie store.';
     }
@@ -297,27 +387,43 @@ const renderSiteList = () => {
 
 /**
  * Load all cookies of this store and build the site list.
+ * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
+ * @param {boolean} [permissionMissing]
  */
-const loadSites = async () => {
-  hostPermissionMissing = !(await hasHostPermission());
+const loadSites = async (snapshot, permissionMissing) => {
+  hostPermissionMissing = permissionMissing ?? !(await hasHostPermission());
+  sitesReady = false;
+  sites = [];
+  sitesLoadError = null;
+  selectedSites.clear();
+  updateSingleActionState();
+  updateSummary();
   if (hostPermissionMissing) {
-    sites = [];
+    currentSiteKey = '';
+    clearLocation();
     renderSiteList();
-    setBatchStatus(
-      'Firefox host permission is required. See the site list instructions.',
-      'warning',
-    );
+    setBatchStatus(hostPermissionMessage(), 'warning');
     return;
   }
 
-  const snapshot = await getActiveTabSnapshot();
-  currentSiteKey = snapshot.url ? getSiteKey(snapshot.url.hostname) : '';
+  sitesLoadError = 'Reading cookies…';
+  renderSiteList();
+  setBatchStatus('Reading cookies…');
+
+  const activeSnapshot =
+    snapshot === undefined ? await getActiveTabSnapshot() : snapshot;
+  currentSiteKey = activeSnapshot.url
+    ? getSiteKey(activeSnapshot.url.hostname)
+    : '';
 
   const warnings = [];
-  const cookies = await getAllCookiesForBatch(snapshot.tab, {
+  const cookies = await getAllCookiesForBatch(activeSnapshot.tab, {
+    storeId: activeSnapshot.storeId,
     onPartitionError: (error) => warnings.push(error),
   });
   sites = toSiteList(groupCookiesBySite(cookies));
+  sitesReady = true;
+  sitesLoadError = null;
   // Alphabetical order, with the active site pinned to the top.
   sites.sort((a, b) => a.site.localeCompare(b.site));
   const currentIndex = sites.findIndex(
@@ -340,14 +446,34 @@ const loadSites = async () => {
     for (const site of stored) {
       if (sites.some((entry) => entry.site === site)) selectedSites.add(site);
     }
+    // The previous tab's selection may only contain sites that no longer
+    // exist here. If there is a usable stored list but nothing survived,
+    // fall back to the current site instead of leaving batch export disabled.
+    if (
+      stored.length > 0 &&
+      selectedSites.size === 0 &&
+      currentSiteKey &&
+      sites.some((entry) => entry.site === currentSiteKey)
+    ) {
+      selectedSites.add(currentSiteKey);
+    }
   } else if (
     currentSiteKey &&
     sites.some((entry) => entry.site === currentSiteKey)
   ) {
     selectedSites.add(currentSiteKey);
   }
+  // A selection from the previous tab may no longer exist in this tab's
+  // cookie store; keeping it would make the batch count and export guard
+  // disagree with the visible list.
+  for (const site of [...selectedSites]) {
+    if (!sites.some((entry) => entry.site === site)) selectedSites.delete(site);
+  }
+  persistSelection();
+  updateSingleActionState();
 
   renderSiteList();
+  setBatchStatus('');
   if (warnings.length) {
     setBatchStatus(
       'Some partitioned cookies could not be read; the site list may be incomplete.',
@@ -360,32 +486,47 @@ const loadSites = async () => {
 // Actions after resolving the promise
 // ----------------------------------------------
 
-/** Populate the header and single-site cookie table from one tab snapshot. */
-const initializeSingleSite = async () => {
-  hostPermissionMissing = !(await hasHostPermission());
+/**
+ * Populate the header and single-site cookie table from one tab snapshot.
+ * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
+ * @param {boolean} [permissionMissing]
+ */
+const initializeSingleSite = async (snapshot, permissionMissing) => {
+  hostPermissionMissing = permissionMissing ?? !(await hasHostPermission());
   if (hostPermissionMissing) {
+    singleSiteReady = false;
+    currentSiteKey = '';
+    clearLocation();
+    updateSingleActionState();
     document.querySelector('#netscapeTable tbody').replaceChildren();
-    setSingleStatus(
-      'Firefox host permission is required. Open about:addons, open Permissions, and enable "Access your data for all websites", then reopen this popup.',
-      'warning',
-    );
+    setSingleStatus(hostPermissionMessage(), 'warning');
     return;
   }
 
-  const { url, partitionKey } = await getActiveTabSnapshot();
-  el.location.textContent = url?.href ?? 'this page';
-  el.location.href = url?.href ?? '#';
+  setSingleStatus('Reading cookies…');
+  singleSiteReady = false;
+  updateSingleActionState();
+  document.querySelector('#netscapeTable tbody').replaceChildren();
+
+  const activeSnapshot =
+    snapshot === undefined ? await getActiveTabSnapshot() : snapshot;
+  const { url, partitionKey, storeId } = activeSnapshot;
+  setLocation(url);
   if (!url) {
+    singleSiteReady = false;
+    currentSiteKey = '';
+    updateSingleActionState();
     document.querySelector('#netscapeTable tbody').replaceChildren();
     setSingleStatus('No active page URL.', 'error');
     return;
   }
 
   const warnings = [];
-  const details = { url: url.href };
+  const details = { url: url.href, storeId };
   if (partitionKey) details.partitionKey = partitionKey;
   const cookies = await getAllCookies(details, {
     onPartitionError: (error) => warnings.push(error),
+    activeTab: activeSnapshot.tab,
   });
   const netscape = jsonToNetscapeMapper(cookies);
   const tableRows = netscape.map((row) => {
@@ -400,6 +541,9 @@ const initializeSingleSite = async () => {
     return tr;
   });
   document.querySelector('#netscapeTable tbody').replaceChildren(...tableRows);
+  singleSiteReady = true;
+  updateSingleActionState();
+  setSingleStatus('');
   if (warnings.length) {
     setSingleStatus(
       'Some partitioned cookies could not be read; the table may be incomplete.',
@@ -408,10 +552,80 @@ const initializeSingleSite = async () => {
   }
 };
 
-initializeSingleSite().catch((error) => {
+const handleSingleSiteError = (error) => {
+  singleSiteReady = false;
+  updateSingleActionState();
   document.querySelector('#netscapeTable tbody').replaceChildren();
   setSingleStatus(`Could not read cookies: ${error.message}`, 'error');
+};
+
+/**
+ * @param {unknown} error
+ * @param {boolean} [permissionMissing]
+ */
+const handleRefreshError = (error, permissionMissing = false) => {
+  singleSiteReady = false;
+  sitesReady = false;
+  sites = [];
+  sitesLoadError = `Could not read cookies: ${error.message}`;
+  currentSiteKey = '';
+  selectedSites.clear();
+  hostPermissionMissing = permissionMissing;
+  clearLocation();
+  updateSingleActionState();
+  document.querySelector('#netscapeTable tbody').replaceChildren();
+  renderSiteList();
+  const message = permissionMissing
+    ? hostPermissionMessage()
+    : `Could not read cookies: ${error.message}`;
+  setSingleStatus(message, permissionMissing ? 'warning' : 'error');
+  setBatchStatus(message, permissionMissing ? 'warning' : 'error');
+};
+
+let singleSiteRefresh = Promise.resolve();
+
+const refreshSingleSite = (snapshot, permissionMissing) => {
+  // Serialize refreshes so a slower earlier snapshot cannot overwrite the
+  // result of a newer active tab.
+  singleSiteRefresh = singleSiteRefresh
+    .then(() => initializeSingleSite(snapshot, permissionMissing))
+    .catch(handleSingleSiteError);
+  return singleSiteRefresh;
+};
+
+let activeTabRefresh = Promise.resolve();
+
+const refreshActiveTab = () => {
+  // Serialize whole-popup refreshes and share one snapshot between the
+  // current-site table and the batch site list.
+  activeTabRefresh = activeTabRefresh
+    .then(async () => {
+      const snapshot = await getActiveTabSnapshot();
+      const permissionMissing = !(await hasHostPermission());
+      await refreshSingleSite(snapshot, permissionMissing);
+      await loadSites(snapshot, permissionMissing);
+    })
+    .catch(async (error) => {
+      // The failure may have happened before the permission check above, so
+      // re-check here to keep the error message and action states accurate.
+      const permissionMissing = !(await hasHostPermission());
+      handleRefreshError(error, permissionMissing);
+    });
+};
+
+refreshActiveTab();
+
+// The tab snapshot can become stale if the user switches tabs or navigates
+// while the popup is still open (notably in browser automation and
+// keyboard-driven use).
+chrome.tabs.onActivated.addListener(refreshActiveTab);
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (tab && !tab.active) return;
+  if (!changeInfo.url && changeInfo.status !== 'complete') return;
+  refreshActiveTab();
 });
+chrome.permissions?.onAdded?.addListener(refreshActiveTab);
+chrome.permissions?.onRemoved?.addListener(refreshActiveTab);
 
 // ----------------------------------------------
 // Tabs
@@ -461,17 +675,23 @@ el.tabMulti.addEventListener('keydown', handleTabKeydown);
 // ----------------------------------------------
 
 const getCurrentSiteDetails = async () => {
-  const { url, partitionKey } = await getActiveTabSnapshot();
+  const snapshot = await getActiveTabSnapshot();
+  const { url, partitionKey, storeId, tab } = snapshot;
   if (!url) throw new Error('No active page URL');
-  const details = { url: url.href };
+  const details = { url: url.href, storeId };
   if (partitionKey) details.partitionKey = partitionKey;
-  return { url, details };
+  return { url, details, tab };
 };
 
 document.querySelector('#export').addEventListener('click', async () => {
+  if (!beginExclusiveAction()) return;
   try {
-    const { url, details } = await getCurrentSiteDetails();
-    const { text, format, warnings } = await getCookieText(details);
+    const { url, details, tab } = await getCurrentSiteDetails();
+    const { text, format, warnings } = await getCookieText(
+      details,
+      el.format.value,
+      tab,
+    );
     const base = siteCookieBaseName(url.hostname);
     await saveToFile(text, base, format);
     setSingleStatus(
@@ -480,13 +700,20 @@ document.querySelector('#export').addEventListener('click', async () => {
     );
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
+  } finally {
+    endExclusiveAction();
   }
 });
 
 document.querySelector('#exportAs').addEventListener('click', async () => {
+  if (!beginExclusiveAction()) return;
   try {
-    const { url, details } = await getCurrentSiteDetails();
-    const { text, format, warnings } = await getCookieText(details);
+    const { url, details, tab } = await getCurrentSiteDetails();
+    const { text, format, warnings } = await getCookieText(
+      details,
+      el.format.value,
+      tab,
+    );
     const base = siteCookieBaseName(url.hostname);
     await saveToFile(text, base, format, true);
     setSingleStatus(
@@ -495,13 +722,20 @@ document.querySelector('#exportAs').addEventListener('click', async () => {
     );
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
+  } finally {
+    endExclusiveAction();
   }
 });
 
 document.querySelector('#copy').addEventListener('click', async () => {
+  if (!beginExclusiveAction()) return;
   try {
-    const { details } = await getCurrentSiteDetails();
-    const { text, warnings } = await getCookieText(details);
+    const { details, tab } = await getCurrentSiteDetails();
+    const { text, warnings } = await getCookieText(
+      details,
+      el.format.value,
+      tab,
+    );
     await setClipboard(text, document.querySelector('#copy'));
     setSingleStatus(
       `Copied current site cookies.${partitionWarningText(warnings)}`,
@@ -509,14 +743,22 @@ document.querySelector('#copy').addEventListener('click', async () => {
     );
   } catch (error) {
     setSingleStatus(`Copy failed: ${error.message}`, 'error');
+  } finally {
+    endExclusiveAction();
   }
 });
 
 document.querySelector('#exportAll').addEventListener('click', async () => {
+  if (!beginExclusiveAction()) return;
   try {
-    const { partitionKey } = await getActiveTabSnapshot();
-    const details = partitionKey ? { partitionKey } : {};
-    const { text, format, warnings } = await getCookieText(details);
+    const snapshot = await getActiveTabSnapshot();
+    const details = { storeId: snapshot.storeId };
+    if (snapshot.partitionKey) details.partitionKey = snapshot.partitionKey;
+    const { text, format, warnings } = await getCookieText(
+      details,
+      el.format.value,
+      snapshot.tab,
+    );
     await saveToFile(text, 'cookies', format);
     setSingleStatus(
       `Started export of cookies${format.ext}${partitionWarningText(warnings)}`,
@@ -524,6 +766,8 @@ document.querySelector('#exportAll').addEventListener('click', async () => {
     );
   } catch (error) {
     setSingleStatus(`Export failed: ${error.message}`, 'error');
+  } finally {
+    endExclusiveAction();
   }
 });
 
@@ -626,12 +870,13 @@ const getSelectedGroups = () =>
     .map((entry) => ({ site: entry.site, cookies: entry.cookies }));
 
 el.batchCopy.addEventListener('click', async () => {
+  const groups = getSelectedGroups();
+  if (!groups.length) {
+    setBatchStatus('Select at least one site first.', 'error');
+    return;
+  }
+  if (!beginExclusiveAction()) return;
   try {
-    const groups = getSelectedGroups();
-    if (!groups.length) {
-      setBatchStatus('Select at least one site first.', 'error');
-      return;
-    }
     const text = serializeCombined(groups, el.batchFormat.value);
     await setClipboard(text, el.batchCopy);
     setBatchStatus(
@@ -639,6 +884,8 @@ el.batchCopy.addEventListener('click', async () => {
     );
   } catch (error) {
     setBatchStatus(`Copy failed: ${error.message}`, 'error');
+  } finally {
+    endExclusiveAction();
   }
 });
 
@@ -653,7 +900,7 @@ el.batchExport.addEventListener('click', async () => {
     setBatchStatus('Unsupported export format.', 'error');
     return;
   }
-  if (!exportGuard.begin()) return;
+  if (!beginExclusiveAction()) return;
 
   const date = new Date();
 
@@ -697,15 +944,12 @@ el.batchExport.addEventListener('click', async () => {
   } catch (error) {
     setBatchStatus(`Export failed: ${error.message}`, 'error');
   } finally {
-    exportGuard.end();
-    updateSummary();
+    endExclusiveAction();
   }
 });
 
 // ----------------------------------------------
 // Init
 // ----------------------------------------------
-
-loadSites().catch((error) => {
-  setBatchStatus(`Could not read cookies: ${error.message}`, 'error');
-});
+// Active-tab initialization is already kicked off above so both panels share
+// one snapshot and one permission check.

@@ -43,4 +43,8 @@
   .donation p {
     color: #aaa;
   }
+
+  .kofi-button:focus-visible {
+    outline-color: #e09200;
+  }
 }

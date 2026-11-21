@@ -104,7 +104,8 @@ The selection is stored in `localStorage`, so reopening the popup keeps your pre
 - **Netscape** — the `cookies.txt` format accepted by `wget --load-cookies`, `curl -b`, Python `MozillaCookieJar` and
   yt-dlp. `HttpOnly` cookies use the `#HttpOnly_` prefix. Netscape has no field for a CHIPS partition key: when two
   variants share the same domain/path/name, the unpartitioned one is preferred and partitioned-only duplicates are
-  collapsed to one row.
+  collapsed to one row. Firefox first-party isolation (`firstPartyDomain`) variants with the same domain/path/name are
+  also collapsed by Netscape and Header output; use JSON when every `firstPartyDomain` variant must be retained.
 - **JSON** — the raw `chrome.cookies.Cookie` array, including `partitionKey` and every CHIPS variant.
 - **Header String** — `name=value; name=value;`, ready to paste into a `Cookie` request header. This format is
   single-site only; the multi-site panel does not offer it because one header cannot represent multiple domains.

@@ -59,19 +59,19 @@
         </p>
 
         <div class="export-btn-container">
-          <button id="export" class="export-btn export">
+          <button id="export" class="export-btn export" disabled>
             <span class="button-text">
               Export
               <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
-          <button id="exportAs" class="export-btn export-as">
+          <button id="exportAs" class="export-btn export-as" disabled>
             <span class="button-text">
               Export As
               <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
-          <button id="copy" class="export-btn copy">
+          <button id="copy" class="export-btn copy" disabled>
             <span class="button-text default-copy-text">
               Copy
               <span class="material-symbols-outlined" aria-hidden="true">content_paste</span>
@@ -81,7 +81,7 @@
               <span class="material-symbols-outlined" aria-hidden="true">check</span>
             </span>
           </button>
-          <button id="exportAll" class="export-btn large export-all">
+          <button id="exportAll" class="export-btn large export-all" disabled>
             <span class="button-text">
               Export All Cookies
               <span class="material-symbols-outlined" aria-hidden="true">download</span>
@@ -107,9 +107,16 @@
           </div>
         </div>
 
-        <div class="table-container">
+        <div
+          class="table-container"
+          tabindex="0"
+          role="region"
+          aria-labelledby="cookiesTableCaption"
+        >
           <table id="netscapeTable" class="netscape-table nowrap">
-            <caption class="visually-hidden">Cookies for the current site</caption>
+            <caption id="cookiesTableCaption" class="visually-hidden">
+              Cookies for the current site
+            </caption>
             <thead>
               <tr>
                 <th scope="col">Domain</th>
@@ -175,7 +182,7 @@
         </div>
 
         <div class="batch-actions">
-          <button id="batchCopy" class="export-btn copy">
+          <button id="batchCopy" class="export-btn copy" disabled>
             <span class="button-text default-copy-text">
               Copy merged
               <span class="material-symbols-outlined" aria-hidden="true">content_paste</span>

@@ -1,3 +1,4 @@
+import { runBackgroundTask } from './modules/background_errors.mjs';
 import { createSaveMessageListener } from './modules/background_message.mjs';
 import { createBadgeCounter } from './modules/badge_counter.mjs';
 import getAllCookies, {
@@ -46,13 +47,15 @@ chrome.windows.onFocusChanged.addListener(scheduleBadgeCounter);
 chrome.runtime.onInstalled.addListener(({ previousVersion, reason }) => {
   if (reason === 'update') {
     const currentVersion = chrome.runtime.getManifest().version;
-    chrome.notifications.create('updated', {
-      type: 'basic',
-      title: 'Get cookies.txt LOCALLY',
-      message: `Updated from ${previousVersion} to ${currentVersion}`,
-      iconUrl: '/images/icon128.png',
-      buttons: [{ title: 'Github Releases' }, { title: 'Uninstall' }],
-    });
+    runBackgroundTask('notifications.create', () =>
+      chrome.notifications.create('updated', {
+        type: 'basic',
+        title: 'Get cookies.txt LOCALLY',
+        message: `Updated from ${previousVersion} to ${currentVersion}`,
+        iconUrl: '/images/icon128.png',
+        buttons: [{ title: 'Github Releases' }, { title: 'Uninstall' }],
+      }),
+    );
   }
 });
 
@@ -63,12 +66,16 @@ chrome.notifications.onButtonClicked.addListener(
     if (notificationId === 'updated') {
       switch (buttonIndex) {
         case 0:
-          chrome.tabs.create({
-            url: 'https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport/releases',
-          });
+          runBackgroundTask('tabs.create', () =>
+            chrome.tabs.create({
+              url: 'https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport/releases',
+            }),
+          );
           break;
         case 1:
-          chrome.management.uninstallSelf({ showConfirmDialog: true });
+          runBackgroundTask('management.uninstallSelf', () =>
+            chrome.management.uninstallSelf({ showConfirmDialog: true }),
+          );
           break;
       }
     }
