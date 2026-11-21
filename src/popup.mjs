@@ -61,10 +61,10 @@ const isFirefox = () =>
   chrome.runtime.getManifest().browser_specific_settings !== undefined;
 
 /**
- * Host access is required for `chrome.cookies.getAll()`. Firefox makes it
- * opt-in after install; Chrome can also lose it when the user changes the
- * extension's site access setting. Check the actual permission instead of
- * assuming that the manifest grant is still active.
+ * Batch export needs access to every origin in the cookie store, so it still
+ * requires the full `<all_urls>` grant. The current-site path deliberately
+ * does not use this check: it attempts the read directly, which also covers
+ * `activeTab` temporary access and site-specific host grants.
  * @returns {Promise<boolean>}
  */
 const hasHostPermission = async () => {
@@ -77,10 +77,21 @@ const hasHostPermission = async () => {
   }
 };
 
-const hostPermissionMessage = () =>
+const batchHostPermissionMessage = () =>
   isFirefox()
     ? 'Firefox host permission is required. Open about:addons, open Permissions, and enable "Access your data for all websites", then reopen this popup.'
     : 'Host permission is required. Open the extension settings and allow access to all websites, then reopen this popup.';
+
+const singleSiteHostPermissionMessage = () =>
+  isFirefox()
+    ? 'Firefox host permission is required for this site. Open about:addons, open Permissions, and allow this site or all websites, then reopen this popup.'
+    : 'Host permission is required for this site. Open the extension settings and allow this site or all websites, then reopen this popup.';
+
+/** @param {unknown} error */
+const isHostPermissionError = (error) =>
+  /host permission|permission denied|missing permission/i.test(
+    String(error instanceof Error ? error.message : error),
+  );
 
 /** @param {string} formatKey */
 const getFormat = (formatKey) =>
@@ -97,7 +108,7 @@ const selectedSites = new Set();
 /** @type {string} */
 let currentSiteKey = '';
 /** @type {boolean} */
-let hostPermissionMissing = false;
+let batchHostPermissionMissing = false;
 /** @type {boolean} */
 let singleSiteReady = false;
 /** @type {boolean} */
@@ -246,17 +257,17 @@ const setLocation = (url) => {
 };
 
 /**
- * Disable actions that cannot run without a resolved active site. Export All
- * needs host access and a successfully loaded batch list, but not a page URL:
- * it can still read the current cookie store when the active tab is internal.
+ * Disable actions that cannot run without a resolved active site. The current
+ * site buttons depend only on a successful current-site read; export all still
+ * needs the full `<all_urls>` grant because it enumerates the whole store.
  */
 const updateSingleActionState = () => {
-  const blocked = hostPermissionMissing || !singleSiteReady || exportGuard.busy;
+  const blocked = !singleSiteReady || exportGuard.busy;
   el.copyButton.disabled = blocked;
   el.exportButton.disabled = blocked;
   el.exportAsButton.disabled = blocked;
   el.exportAllButton.disabled =
-    hostPermissionMissing ||
+    batchHostPermissionMissing ||
     exportGuard.busy ||
     !sitesReady ||
     sites.length === 0;
@@ -298,12 +309,12 @@ const updateSummary = () => {
     exportGuard.busy ||
     !hasSites ||
     selectedSites.size === 0 ||
-    hostPermissionMissing;
+    batchHostPermissionMissing;
   el.batchCopy.disabled =
     exportGuard.busy ||
     !hasSites ||
     selectedSites.size === 0 ||
-    hostPermissionMissing;
+    batchHostPermissionMissing;
 };
 
 /**
@@ -335,8 +346,8 @@ const renderSiteList = () => {
     empty.className = 'site-empty';
     if (query) {
       empty.textContent = 'No site matches this filter.';
-    } else if (hostPermissionMissing) {
-      empty.textContent = hostPermissionMessage();
+    } else if (batchHostPermissionMissing) {
+      empty.textContent = batchHostPermissionMessage();
     } else if (sitesLoadError) {
       empty.textContent = sitesLoadError;
     } else {
@@ -387,23 +398,26 @@ const renderSiteList = () => {
 };
 
 /**
- * Load all cookies of this store and build the site list.
+ * Load all cookies of this store and build the site list. Batch export needs
+ * the full `<all_urls>` grant; a missing grant must not clear the current-site
+ * panel, which may still be readable through `activeTab` or a site-specific
+ * host grant.
  * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
  * @param {boolean} [permissionMissing]
  */
 const loadSites = async (snapshot, permissionMissing) => {
-  hostPermissionMissing = permissionMissing ?? !(await hasHostPermission());
+  batchHostPermissionMissing =
+    permissionMissing ?? !(await hasHostPermission());
   sitesReady = false;
   sites = [];
   sitesLoadError = null;
   selectedSites.clear();
   updateSingleActionState();
   updateSummary();
-  if (hostPermissionMissing) {
+  if (batchHostPermissionMissing) {
     currentSiteKey = '';
-    clearLocation();
     renderSiteList();
-    setBatchStatus(hostPermissionMessage(), 'warning');
+    setBatchStatus(batchHostPermissionMessage(), 'warning');
     return;
   }
 
@@ -489,36 +503,30 @@ const loadSites = async (snapshot, permissionMissing) => {
 
 /**
  * Populate the header and single-site cookie table from one tab snapshot.
+ * Do not gate on the full `<all_urls>` grant: `activeTab` and site-specific
+ * host grants can legitimately expose only the current tab. The cookie query
+ * itself is the source of truth for whether the current site is readable.
  * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
- * @param {boolean} [permissionMissing]
  */
-const initializeSingleSite = async (snapshot, permissionMissing) => {
-  hostPermissionMissing = permissionMissing ?? !(await hasHostPermission());
-  if (hostPermissionMissing) {
-    singleSiteReady = false;
-    currentSiteKey = '';
-    clearLocation();
-    updateSingleActionState();
-    document.querySelector('#netscapeTable tbody').replaceChildren();
-    setSingleStatus(hostPermissionMessage(), 'warning');
-    return;
-  }
-
-  setSingleStatus('Reading cookies…');
+const initializeSingleSite = async (snapshot) => {
   singleSiteReady = false;
   updateSingleActionState();
   document.querySelector('#netscapeTable tbody').replaceChildren();
+  setSingleStatus('Reading cookies…');
 
   const activeSnapshot =
     snapshot === undefined ? await getActiveTabSnapshot() : snapshot;
   const { url, partitionKey, storeId } = activeSnapshot;
   setLocation(url);
   if (!url) {
-    singleSiteReady = false;
     currentSiteKey = '';
     updateSingleActionState();
-    document.querySelector('#netscapeTable tbody').replaceChildren();
-    setSingleStatus('No active page URL.', 'error');
+    setSingleStatus(
+      activeSnapshot.tab
+        ? singleSiteHostPermissionMessage()
+        : 'No active page URL.',
+      activeSnapshot.tab ? 'warning' : 'error',
+    );
     return;
   }
 
@@ -557,7 +565,13 @@ const handleSingleSiteError = (error) => {
   singleSiteReady = false;
   updateSingleActionState();
   document.querySelector('#netscapeTable tbody').replaceChildren();
-  setSingleStatus(`Could not read cookies: ${error.message}`, 'error');
+  const permissionError = isHostPermissionError(error);
+  setSingleStatus(
+    permissionError
+      ? singleSiteHostPermissionMessage()
+      : `Could not read cookies: ${error.message}`,
+    permissionError ? 'warning' : 'error',
+  );
 };
 
 /**
@@ -571,13 +585,13 @@ const handleRefreshError = (error, permissionMissing = false) => {
   sitesLoadError = `Could not read cookies: ${error.message}`;
   currentSiteKey = '';
   selectedSites.clear();
-  hostPermissionMissing = permissionMissing;
+  batchHostPermissionMissing = permissionMissing;
   clearLocation();
   updateSingleActionState();
   document.querySelector('#netscapeTable tbody').replaceChildren();
   renderSiteList();
   const message = permissionMissing
-    ? hostPermissionMessage()
+    ? batchHostPermissionMessage()
     : `Could not read cookies: ${error.message}`;
   setSingleStatus(message, permissionMissing ? 'warning' : 'error');
   setBatchStatus(message, permissionMissing ? 'warning' : 'error');
@@ -585,11 +599,11 @@ const handleRefreshError = (error, permissionMissing = false) => {
 
 let singleSiteRefresh = Promise.resolve();
 
-const refreshSingleSite = (snapshot, permissionMissing) => {
+const refreshSingleSite = (snapshot) => {
   // Serialize refreshes so a slower earlier snapshot cannot overwrite the
   // result of a newer active tab.
   singleSiteRefresh = singleSiteRefresh
-    .then(() => initializeSingleSite(snapshot, permissionMissing))
+    .then(() => initializeSingleSite(snapshot))
     .catch(handleSingleSiteError);
   return singleSiteRefresh;
 };
@@ -602,15 +616,15 @@ const refreshActiveTab = () => {
   activeTabRefresh = activeTabRefresh
     .then(async () => {
       const snapshot = await getActiveTabSnapshot();
-      const permissionMissing = !(await hasHostPermission());
-      await refreshSingleSite(snapshot, permissionMissing);
-      await loadSites(snapshot, permissionMissing);
+      const batchPermissionMissing = !(await hasHostPermission());
+      await refreshSingleSite(snapshot);
+      await loadSites(snapshot, batchPermissionMissing);
     })
     .catch(async (error) => {
       // The failure may have happened before the permission check above, so
       // re-check here to keep the error message and action states accurate.
-      const permissionMissing = !(await hasHostPermission());
-      handleRefreshError(error, permissionMissing);
+      const batchPermissionMissing = !(await hasHostPermission());
+      handleRefreshError(error, batchPermissionMissing);
     });
 };
 

@@ -101,7 +101,11 @@ test('single-site actions start disabled and the table container can take focus'
   assert.match(popupJs, /el\.copyButton\.disabled = blocked;/);
   assert.match(
     popupJs,
-    /el\.exportAllButton\.disabled =\s*hostPermissionMissing \|\|\s*exportGuard\.busy \|\|\s*!sitesReady \|\|\s*sites\.length === 0;/,
+    /el\.exportAllButton\.disabled =\s*batchHostPermissionMissing \|\|\s*exportGuard\.busy \|\|\s*!sitesReady \|\|\s*sites\.length === 0;/,
+  );
+  assert.match(
+    popupJs,
+    /const blocked = !singleSiteReady \|\| exportGuard\.busy;/,
   );
 });
 
@@ -190,8 +194,12 @@ test('active-tab refresh shares one snapshot across panels', () => {
   const end = popupJs.indexOf('refreshActiveTab();', start);
   const block = popupJs.slice(start, end);
   assert.match(block, /const snapshot = await getActiveTabSnapshot\(\);/);
-  assert.match(block, /refreshSingleSite\(snapshot, permissionMissing\)/);
-  assert.match(block, /loadSites\(snapshot, permissionMissing\)/);
+  assert.match(
+    block,
+    /const batchPermissionMissing = !\(await hasHostPermission\(\)\);/,
+  );
+  assert.match(block, /refreshSingleSite\(snapshot\)/);
+  assert.match(block, /loadSites\(snapshot, batchPermissionMissing\)/);
 });
 
 test('active-tab refresh reacts to URL and permission changes', () => {
@@ -224,7 +232,7 @@ test('active-tab refresh failure enters an error state and disables actions', ()
   const refreshEnd = popupJs.indexOf('refreshActiveTab();', refreshStart);
   assert.match(
     popupJs.slice(refreshStart, refreshEnd),
-    /handleRefreshError\(error, permissionMissing\)/,
+    /handleRefreshError\(error, batchPermissionMissing\)/,
   );
 });
 
@@ -262,8 +270,21 @@ test('starting a new site refresh clears stale rows and disables actions', () =>
   );
   assert.match(block, /#netscapeTable tbody'\)\.replaceChildren\(\)/);
   assert.match(block, /setSingleStatus\('Reading cookies…'\)/);
-  assert.match(block, /clearLocation\(\);/);
   assert.match(block, /setLocation\(url\)/);
+});
+
+test('current-site access does not require the all-sites host grant', () => {
+  const initStart = popupJs.indexOf('const initializeSingleSite =');
+  const initEnd = popupJs.indexOf('const handleSingleSiteError', initStart);
+  const initBlock = popupJs.slice(initStart, initEnd);
+  assert.doesNotMatch(initBlock, /batchHostPermissionMissing/);
+  assert.doesNotMatch(initBlock, /hasHostPermission/);
+  assert.match(initBlock, /getAllCookies\(details/);
+
+  const loadStart = popupJs.indexOf('const loadSites =');
+  const loadEnd = popupJs.indexOf('const initializeSingleSite', loadStart);
+  assert.doesNotMatch(popupJs.slice(loadStart, loadEnd), /clearLocation\(\)/);
+  assert.match(popupJs, /singleSiteHostPermissionMessage/);
 });
 
 test('table header stays visible while scrolling', () => {
@@ -278,6 +299,8 @@ test('table header stays visible while scrolling', () => {
 test('Firefox host-permission guidance and partition warnings are visible', () => {
   assert.match(popupJs, /hasHostPermission/);
   assert.match(popupJs, /chrome\.permissions\.contains/);
+  assert.match(popupJs, /isHostPermissionError/);
+  assert.match(popupJs, /singleSiteHostPermissionMessage/);
   assert.match(popupJs, /about:addons/);
   assert.match(popupJs, /onPartitionError/);
   assert.match(popupJs, /Some partitioned cookies could not be read/);

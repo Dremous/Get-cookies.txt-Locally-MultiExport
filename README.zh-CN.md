@@ -78,7 +78,9 @@ manifest/package 版本。
 ### 当前站点
 
 「Current Site」标签与上游一致：表格展示当前标签页的 cookie，提供 **Export**、**Export As**、**Copy**、
-**Export All Cookies**，支持 Netscape / JSON / Header String 三种格式。
+**Export All Cookies**，支持 Netscape / JSON / Header String 三种格式。当前站点读取支持 `activeTab` 临时权限
+（Chrome 的「点击时」站点访问）或仅授权当前站点；「Multiple Sites」仍需要全站访问权限，因为它要枚举整个
+cookie store。
 
 ### 多站点批量
 
@@ -110,12 +112,14 @@ manifest/package 版本。
 
 扩展只申请以下权限：
 
-- **activeTab** —— 读取当前标签页 URL。
+- **activeTab** —— 调用扩展时临时授予当前标签页的 host 权限；Chrome 站点访问设为「点击时」或只授权特定站点时，
+  「Current Site」仍可读取当前站点。批量导出不能只靠它。
 - **clipboardWrite** —— 点击 Copy / Copy merged 时写入导出的文本。
 - **cookies** —— 读取并导出 cookie（不写入、不上传）。
 - **downloads** —— 保存生成的文件。
 - **notifications** —— 更新提示。
-- **host permissions (`<all_urls>`)** —— 通过 `chrome.cookies` 读取 cookie。
+- **host permissions (`<all_urls>`)** —— 通过 `chrome.cookies` 读取整个 cookie store；「Multiple Sites」和
+  「Export All Cookies」需要它。
 
 ## 开发与构建
 

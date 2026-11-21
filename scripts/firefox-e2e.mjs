@@ -11,7 +11,7 @@
  * written by the background page.
  *
  * Requirements:
- *   - Firefox 115+ on PATH (or set FIREFOX_BIN)
+ *   - Firefox 140+ on PATH (or set FIREFOX_BIN); older binaries are rejected
  *   - geckodriver from the npm `geckodriver` package (installed with devDependencies)
  *
  * Run with: npm run test:firefox
@@ -41,6 +41,11 @@ const geckodriver = require('geckodriver');
 
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const distDir = path.join(repoRoot, 'dist');
+const MIN_FIREFOX_VERSION = 140;
+const SITE_COOKIE_VALUES = {
+  '127.0.0.1': 'abc123',
+  '127.0.0.2': 'def456',
+};
 const resolveFirefoxBinary = () => {
   if (process.env.FIREFOX_BIN) return process.env.FIREFOX_BIN;
   try {
@@ -48,6 +53,24 @@ const resolveFirefoxBinary = () => {
   } catch {
     return '';
   }
+};
+
+/**
+ * Parse `firefox --version` and enforce the manifest's desktop minimum.
+ * @param {string} binary
+ */
+const readFirefoxVersion = (binary) => {
+  const output = execFileSync(binary, ['--version'], {
+    encoding: 'utf8',
+  }).trim();
+  const match = output.match(/(?:Mozilla\s+)?Firefox\s+(\d+(?:\.\d+)*)/i);
+  if (!match) {
+    throw new Error(`Could not parse Firefox version from: ${output}`);
+  }
+  return {
+    output,
+    major: Number.parseInt(match[1].split('.')[0], 10),
+  };
 };
 
 // Firefox 160 denies the Marionette chrome context unless system access is
@@ -114,11 +137,11 @@ const activateSiteTab = (driver, origin) =>
   driver
     .executeAsyncScript((prefix, done) => {
       chrome.tabs.query({}, (tabs) => {
-        const byUrl = tabs.find((tab) => tab.url?.startsWith(prefix));
-        // Firefox does not expose tab.url without the `tabs` permission even
-        // when host access is granted. The test opens the two site tabs first,
-        // so the first tab is the 127.0.0.1 page.
-        const siteTab = byUrl || tabs.find((tab) => tab.index === 0);
+        // Firefox exposes tab.url once the host permission is granted. Fail
+        // instead of falling back to tab index 0: a silent fallback can
+        // activate the wrong site and make the isolation assertions pass for
+        // the wrong reason.
+        const siteTab = tabs.find((tab) => tab.url?.startsWith(prefix));
         const tabInfo = tabs.map((tab) => ({
           id: tab.id,
           index: tab.index,
@@ -127,13 +150,30 @@ const activateSiteTab = (driver, origin) =>
           active: tab.active,
         }));
         if (!siteTab) {
-          done({ error: `No site tab for ${prefix}`, tabs: tabInfo });
+          done({
+            error: `No site tab URL matching ${prefix}`,
+            tabs: tabInfo,
+          });
           return;
         }
         const activate = () => {
-          chrome.tabs.update(siteTab.id, { active: true }, () =>
-            done({ ok: true, selected: siteTab.id, tabs: tabInfo }),
-          );
+          chrome.tabs.update(siteTab.id, { active: true }, () => {
+            chrome.tabs.query(
+              { active: true, windowId: siteTab.windowId },
+              ([activeTab]) => {
+                if (!activeTab?.url?.startsWith(prefix)) {
+                  done({
+                    error: `Activated tab does not match ${prefix}`,
+                    selected: siteTab.id,
+                    active: activeTab?.url,
+                    tabs: tabInfo,
+                  });
+                  return;
+                }
+                done({ ok: true, selected: siteTab.id, tabs: tabInfo });
+              },
+            );
+          });
         };
         chrome.windows.update(siteTab.windowId, { focused: true }, activate);
       });
@@ -244,6 +284,13 @@ const run = async () => {
       'Firefox binary not found. Install Firefox or set FIREFOX_BIN.',
     );
   }
+  const firefoxVersion = readFirefoxVersion(firefoxBinary);
+  if (firefoxVersion.major < MIN_FIREFOX_VERSION) {
+    throw new Error(
+      `Firefox ${MIN_FIREFOX_VERSION}+ is required; found ${firefoxVersion.output}. Set FIREFOX_BIN to a newer binary.`,
+    );
+  }
+  console.log(`Using ${firefoxVersion.output}`);
 
   const bundle = findFirefoxBundle();
   const tmpDir = mkdtempSync(
@@ -255,7 +302,9 @@ const run = async () => {
   copyFileSync(bundle, xpiPath);
 
   const server = http.createServer((req, res) => {
-    res.setHeader('Set-Cookie', 'sid=abc123; Path=/; SameSite=Lax');
+    const hostname = req.headers.host?.split(':')[0] ?? '';
+    const value = SITE_COOKIE_VALUES[hostname] ?? 'unknown-host';
+    res.setHeader('Set-Cookie', `sid=${value}; Path=/; SameSite=Lax`);
     res.end('ok');
   });
   await new Promise((resolve, reject) => {
@@ -321,6 +370,14 @@ const run = async () => {
         'Host permission was not granted; Firefox returned fewer than 2 cookies.',
       );
     }
+    const afterValues = new Set(after.map((cookie) => cookie.value));
+    for (const value of Object.values(SITE_COOKIE_VALUES)) {
+      if (!afterValues.has(value)) {
+        throw new Error(
+          `Test server cookie ${value} was not stored; got ${[...afterValues].join(', ')}.`,
+        );
+      }
+    }
 
     // Verify the Firefox background badge against a real site tab. The E2E
     // popup is itself a tab, so activate a site tab first and then restore the
@@ -372,6 +429,13 @@ const run = async () => {
     // path and the active-tab refresh triggered by tabs.onActivated.
     await driver.findElement({ id: 'tabSingle' }).click();
     await activateSiteTab(driver, `http://127.0.0.1:${port}`);
+    await driver.wait(
+      async () =>
+        (await driver.findElement({ id: 'location' }).getText()).includes(
+          `http://127.0.0.1:${port}`,
+        ),
+      10000,
+    );
     await driver.wait(
       () => driver.findElement({ id: 'export' }).isEnabled(),
       10000,
@@ -455,8 +519,15 @@ const run = async () => {
       /\.txt$/,
     );
     const singleText = readFileSync(singlePath, 'utf8');
-    if (!singleText.includes('sid\tabc123')) {
-      throw new Error('Single-site export does not contain the test cookie.');
+    const singleCookie = `sid\t${SITE_COOKIE_VALUES['127.0.0.1']}`;
+    const otherCookie = `sid\t${SITE_COOKIE_VALUES['127.0.0.2']}`;
+    if (!singleText.includes(singleCookie)) {
+      throw new Error(`Single-site export does not contain ${singleCookie}.`);
+    }
+    if (singleText.includes(otherCookie)) {
+      throw new Error(
+        `Single-site export leaked the other site cookie ${otherCookie}.`,
+      );
     }
     console.log(`Single-site export OK: ${path.basename(singlePath)}`);
 
@@ -529,6 +600,11 @@ const run = async () => {
     if (!isolationCookie?.firstPartyDomain) {
       throw new Error('JSON export lost the firstPartyDomain field.');
     }
+    if (isolationCookie.value !== SITE_COOKIE_VALUES['127.0.0.1']) {
+      throw new Error(
+        `JSON single-site export leaked value ${isolationCookie.value}.`,
+      );
+    }
     console.log(
       `Firefox first-party isolation OK: ${isolationCookie.firstPartyDomain}`,
     );
@@ -551,8 +627,10 @@ const run = async () => {
       /\.txt$/,
     );
     const exportAllText = readFileSync(exportAllPath, 'utf8');
-    if (!exportAllText.includes('sid\tabc123')) {
-      throw new Error('Export All does not contain the test cookie.');
+    for (const value of Object.values(SITE_COOKIE_VALUES)) {
+      if (!exportAllText.includes(`sid\t${value}`)) {
+        throw new Error(`Export All does not contain cookie ${value}.`);
+      }
     }
     console.log(`Export All OK: ${path.basename(exportAllPath)}`);
 
@@ -587,8 +665,10 @@ const run = async () => {
     ) {
       throw new Error('Merged export does not contain both sites.');
     }
-    if (!combined.includes('sid\tabc123')) {
-      throw new Error('Merged export does not contain the test cookie.');
+    for (const value of Object.values(SITE_COOKIE_VALUES)) {
+      if (!combined.includes(`sid\t${value}`)) {
+        throw new Error(`Merged export does not contain cookie ${value}.`);
+      }
     }
     console.log(
       `Merged export OK: ${path.basename(combinedPath)} (${combined.length} bytes)`,
@@ -643,9 +723,24 @@ const run = async () => {
       /\.txt$/,
       2,
     );
-    for (const file of [separateOne, separateTwo]) {
-      if (!readFileSync(file, 'utf8').includes('sid\tabc123')) {
-        throw new Error(`${path.basename(file)} lacks the test cookie.`);
+    const separateFiles = [separateOne, separateTwo];
+    const separateTexts = separateFiles.map((file) =>
+      readFileSync(file, 'utf8'),
+    );
+    for (const value of Object.values(SITE_COOKIE_VALUES)) {
+      const matches = separateTexts.filter((text) =>
+        text.includes(`sid\t${value}`),
+      );
+      if (matches.length !== 1) {
+        throw new Error(
+          `Separate downloads must contain ${value} in exactly one file.`,
+        );
+      }
+    }
+    const separateNames = separateFiles.map((file) => path.basename(file));
+    for (const host of Object.keys(SITE_COOKIE_VALUES)) {
+      if (!separateNames.some((name) => name.startsWith(`${host}_cookies_`))) {
+        throw new Error(`Separate downloads lack a file for ${host}.`);
       }
     }
     console.log(
@@ -661,6 +756,11 @@ const run = async () => {
       'singleStatus',
       'Firefox host permission is required',
     );
+    if (await driver.findElement({ id: 'export' }).isEnabled()) {
+      throw new Error(
+        'Current-site Export stayed enabled without host permission.',
+      );
+    }
     if (await driver.findElement({ id: 'exportAll' }).isEnabled()) {
       throw new Error('Export All stayed enabled without host permission.');
     }
@@ -698,6 +798,12 @@ const run = async () => {
     }
     await sleep(500);
     await driver.wait(
+      async () =>
+        (await driver.findElement({ id: 'location' }).getText()) ===
+        `http://127.0.0.1:${port}/`,
+      10000,
+    );
+    await driver.wait(
       () => driver.findElement({ id: 'export' }).isEnabled(),
       10000,
     );
@@ -709,8 +815,12 @@ const run = async () => {
       beforeContainer,
       /\.txt$/,
     );
-    if (!readFileSync(containerPath, 'utf8').includes('sid\tabc123')) {
+    const containerText = readFileSync(containerPath, 'utf8');
+    if (!containerText.includes(`sid\t${SITE_COOKIE_VALUES['127.0.0.1']}`)) {
       throw new Error('Container-store export does not contain the cookie.');
+    }
+    if (containerText.includes(`sid\t${SITE_COOKIE_VALUES['127.0.0.2']}`)) {
+      throw new Error('Container-store export leaked the other site cookie.');
     }
     console.log(`Firefox container store OK: ${path.basename(containerPath)}`);
 

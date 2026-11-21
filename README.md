@@ -84,7 +84,9 @@ published tag; bump the manifest/package version for each AMO submission.
 ### Current site
 
 The **Current Site** tab behaves exactly like upstream: it shows the cookies of the active tab in a table and offers
-**Export**, **Export As**, **Copy** and **Export All Cookies**, with Netscape / JSON / Header String formats.
+**Export**, **Export As**, **Copy** and **Export All Cookies**, with Netscape / JSON / Header String formats. The
+current-site read works with temporary `activeTab` access (Chrome's “on click” site access) or a site-specific host
+grant; the **Multiple Sites** tab still needs access to all sites because it enumerates the whole cookie store.
 
 ### Multiple sites
 
@@ -118,12 +120,13 @@ The selection is stored in `localStorage`, so reopening the popup keeps your pre
 
 The extension requests only:
 
-- **activeTab** — URL of the current tab.
+- **activeTab** — temporary host access to the current tab when the extension is invoked; lets **Current Site** read
+  cookies when site access is set to “on click” or limited to specific sites. It is not enough for batch export.
 - **clipboardWrite** — copy exported text when you press Copy / Copy merged.
 - **cookies** — read and export cookies (never writes, never sends).
 - **downloads** — save the generated files.
 - **notifications** — update notice.
-- **host permissions (`<all_urls>`)** — read cookies through the `chrome.cookies` API.
+- **host permissions (`<all_urls>`)** — read the whole cookie store through the `chrome.cookies` API; needed for **Multiple Sites** and **Export All Cookies**.
 
 ## Development
 
