@@ -14,6 +14,27 @@ test('web-ext is a pinned devDependency used by the AMO workflow', () => {
   assert.equal(lock.packages['node_modules/web-ext'].version, '10.8.0');
 });
 
+test('fix scripts sync versions before reformatting generated manifests', () => {
+  const pkg = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+
+  assert.equal(pkg.scripts.fix, 'npm run sync-version && biome check --fix');
+  assert.equal(
+    pkg.scripts['fix:unsafe'],
+    'npm run sync-version && biome check --fix --unsafe',
+  );
+});
+
+test('Chrome Web Store instructions use the actual popup tab name', () => {
+  const cws = readFileSync(
+    new URL('../CHROMEWEBSTORE.md', import.meta.url),
+    'utf8',
+  );
+  assert.match(cws, /In \*\*Multiple Sites\*\*/);
+  assert.doesNotMatch(cws, /In \*\*All Sites\*\*/);
+});
+
 test('release bundles include the third-party notices and MPL license', () => {
   const buildScript = readFileSync(
     new URL('../scripts/build.js', import.meta.url),

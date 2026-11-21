@@ -86,7 +86,7 @@ The authoritative policy is [`privacy-policy.md`](privacy-policy.md).
    `https://example.org`), then open the extension popup.
 4. In **Current Site**, press **Export** and confirm a `.txt` download; press
    **Copy** and confirm the "Copied!" feedback.
-5. In **All Sites**, select two entries and export with Netscape, JSON, and ZIP.
+5. In **Multiple Sites**, select two entries and export with Netscape, JSON, and ZIP.
 6. To test the missing-permission path, open the extension's **Site access**
    settings and remove the all-sites grant, then reopen the popup; the batch
    view should explain the missing permission while the current-site view

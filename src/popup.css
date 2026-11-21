@@ -58,6 +58,10 @@ h1 .brand-tag {
 }
 
 .current-url a {
+  display: inline-block;
+  min-inline-size: 0;
+  min-block-size: 24px;
+  line-height: 24px;
   color: #3153ee;
   overflow: hidden;
   text-overflow: ellipsis;

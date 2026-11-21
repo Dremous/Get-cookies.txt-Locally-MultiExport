@@ -121,6 +121,8 @@ let sitesReady = false;
 let sitesLoading = true;
 /** @type {string | null} */
 let sitesLoadError = null;
+/** @type {number} */
+let activeTabRefreshGeneration = 0;
 const exportGuard = createExportGuard();
 const copyFeedback = createCopyFeedback();
 
@@ -433,10 +435,18 @@ const renderSiteList = () => {
  * host grant.
  * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
  * @param {boolean} [permissionMissing]
+ * @param {number} [generation]
  */
-const loadSites = async (snapshot, permissionMissing) => {
-  batchHostPermissionMissing =
+const loadSites = async (
+  snapshot,
+  permissionMissing,
+  generation = activeTabRefreshGeneration,
+) => {
+  if (generation !== activeTabRefreshGeneration) return;
+  const permissionMissingNow =
     permissionMissing ?? !(await hasHostPermission());
+  if (generation !== activeTabRefreshGeneration) return;
+  batchHostPermissionMissing = permissionMissingNow;
   sitesReady = false;
   sitesLoading = true;
   sites = [];
@@ -457,6 +467,7 @@ const loadSites = async (snapshot, permissionMissing) => {
 
   const activeSnapshot =
     snapshot === undefined ? await getActiveTabSnapshot() : snapshot;
+  if (generation !== activeTabRefreshGeneration) return;
   currentSiteKey = activeSnapshot.url
     ? getSiteKey(activeSnapshot.url.hostname)
     : '';
@@ -467,8 +478,10 @@ const loadSites = async (snapshot, permissionMissing) => {
       storeId: activeSnapshot.storeId,
       onPartitionError: (error) => warnings.push(error),
     });
+    if (generation !== activeTabRefreshGeneration) return;
     sites = toSiteList(groupCookiesBySite(cookies));
   } catch (error) {
+    if (generation !== activeTabRefreshGeneration) return;
     // The current-site read may have succeeded even when the whole-store
     // batch read fails. Keep its snapshot, location, table and buttons intact;
     // only the batch list and batch actions depend on this query.
@@ -558,8 +571,13 @@ const loadSites = async (snapshot, permissionMissing) => {
  * host grants can legitimately expose only the current tab. The cookie query
  * itself is the source of truth for whether the current site is readable.
  * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
+ * @param {number} [generation]
  */
-const initializeSingleSite = async (snapshot) => {
+const initializeSingleSite = async (
+  snapshot,
+  generation = activeTabRefreshGeneration,
+) => {
+  if (generation !== activeTabRefreshGeneration) return;
   currentSiteSnapshot = null;
   singleSiteReady = false;
   updateSingleActionState();
@@ -568,6 +586,7 @@ const initializeSingleSite = async (snapshot) => {
 
   const activeSnapshot =
     snapshot === undefined ? await getActiveTabSnapshot() : snapshot;
+  if (generation !== activeTabRefreshGeneration) return;
   const { url, partitionKey, storeId } = activeSnapshot;
   setLocation(url);
   if (!url) {
@@ -589,6 +608,7 @@ const initializeSingleSite = async (snapshot) => {
     onPartitionError: (error) => warnings.push(error),
     activeTab: activeSnapshot.tab,
   });
+  if (generation !== activeTabRefreshGeneration) return;
   const netscape = jsonToNetscapeMapper(cookies);
   const tableRows = netscape.map((row) => {
     const tr = document.createElement('tr');
@@ -614,7 +634,11 @@ const initializeSingleSite = async (snapshot) => {
   }
 };
 
-const handleSingleSiteError = (error) => {
+const handleSingleSiteError = (
+  error,
+  generation = activeTabRefreshGeneration,
+) => {
+  if (generation !== activeTabRefreshGeneration) return;
   currentSiteSnapshot = null;
   singleSiteReady = false;
   updateSingleActionState();
@@ -632,7 +656,12 @@ const handleSingleSiteError = (error) => {
  * @param {unknown} error
  * @param {boolean} [permissionMissing]
  */
-const handleRefreshError = (error, permissionMissing = false) => {
+const handleRefreshError = (
+  error,
+  permissionMissing = false,
+  generation = activeTabRefreshGeneration,
+) => {
+  if (generation !== activeTabRefreshGeneration) return;
   currentSiteSnapshot = null;
   lastActiveSnapshot = null;
   singleSiteReady = false;
@@ -656,18 +685,23 @@ const handleRefreshError = (error, permissionMissing = false) => {
 
 let singleSiteRefresh = Promise.resolve();
 
-const refreshSingleSite = (snapshot) => {
-  // Serialize refreshes so a slower earlier snapshot cannot overwrite the
-  // result of a newer active tab.
+const refreshSingleSite = (
+  snapshot,
+  generation = activeTabRefreshGeneration,
+) => {
+  // Serialize refreshes and verify the generation after every await, so a
+  // slower earlier snapshot cannot overwrite the result of a newer active tab.
+  if (generation !== activeTabRefreshGeneration) return Promise.resolve();
   singleSiteRefresh = singleSiteRefresh
-    .then(() => initializeSingleSite(snapshot))
-    .catch(handleSingleSiteError);
+    .then(() => initializeSingleSite(snapshot, generation))
+    .catch((error) => handleSingleSiteError(error, generation));
   return singleSiteRefresh;
 };
 
 let activeTabRefresh = Promise.resolve();
 
 const refreshActiveTab = () => {
+  const generation = ++activeTabRefreshGeneration;
   // Invalidate current-site actions before awaiting anything. A click that
   // arrives while the new tab snapshot is still loading must not mix the old
   // table with cookies from the new tab.
@@ -682,17 +716,23 @@ const refreshActiveTab = () => {
   // current-site table and the batch site list.
   activeTabRefresh = activeTabRefresh
     .then(async () => {
+      if (generation !== activeTabRefreshGeneration) return;
       const snapshot = await getActiveTabSnapshot();
+      if (generation !== activeTabRefreshGeneration) return;
       lastActiveSnapshot = snapshot;
       const batchPermissionMissing = !(await hasHostPermission());
-      await refreshSingleSite(snapshot);
-      await loadSites(snapshot, batchPermissionMissing);
+      if (generation !== activeTabRefreshGeneration) return;
+      await refreshSingleSite(snapshot, generation);
+      if (generation !== activeTabRefreshGeneration) return;
+      await loadSites(snapshot, batchPermissionMissing, generation);
     })
     .catch(async (error) => {
+      if (generation !== activeTabRefreshGeneration) return;
       // The failure may have happened before the permission check above, so
       // re-check here to keep the error message and action states accurate.
       const batchPermissionMissing = !(await hasHostPermission());
-      handleRefreshError(error, batchPermissionMissing);
+      if (generation !== activeTabRefreshGeneration) return;
+      handleRefreshError(error, batchPermissionMissing, generation);
     });
 };
 
@@ -841,11 +881,9 @@ document.querySelector('#exportAll').addEventListener('click', async () => {
   }
   if (!beginExclusiveAction()) return;
   try {
-    if (el.format.value === 'header') {
-      throw new Error(
-        'Header String is single-site only; choose Netscape or JSON for Export All Cookies',
-      );
-    }
+    // exportAllBlockedReason() already rejects Header String when the store
+    // contains more than one site. A single site is a valid Header export, so
+    // do not reject it again here.
     const snapshot = lastActiveSnapshot ?? (await getActiveTabSnapshot());
     lastActiveSnapshot = snapshot;
     const details = { storeId: snapshot.storeId };

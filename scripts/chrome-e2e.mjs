@@ -389,7 +389,11 @@ const main = async () => {
         const rect = document.querySelector(`#${id}`).getBoundingClientRect();
         return { id, width: rect.width, height: rect.height };
       };
-      const sizes = [measure('format'), measure('nowrapOption')];
+      const sizes = [
+        measure('location'),
+        measure('format'),
+        measure('nowrapOption'),
+      ];
       document.querySelector('#tabMulti').click();
       await new Promise((resolve) => setTimeout(resolve, 0));
       sizes.push(measure('batchFormat'), measure('batchMode'));
@@ -466,6 +470,100 @@ const main = async () => {
       );
     }
     console.log('Chrome single-site tab-switch race OK');
+    await popup.waitForFunction(
+      () => {
+        const location = document.querySelector('#location')?.textContent ?? '';
+        return (
+          !document.querySelector('#export').disabled &&
+          location.includes('127.0.0.2') &&
+          document.querySelectorAll('#netscapeTable tbody tr').length > 0
+        );
+      },
+      { timeout: 5000, polling: 50 },
+    );
+    await sitePage.bringToFront();
+    await popup.waitForFunction(
+      () => {
+        const location = document.querySelector('#location')?.textContent ?? '';
+        return (
+          !document.querySelector('#export').disabled &&
+          location.includes('127.0.0.1') &&
+          document.querySelectorAll('#netscapeTable tbody tr').length > 0
+        );
+      },
+      { timeout: 5000, polling: 50 },
+    );
+
+    // A refresh for the previous tab may finish after a newer refresh has
+    // invalidated state. It must not restore the old table or buttons.
+    const staleRefresh = await popup.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const current = tabs.find((tab) =>
+        tab.url?.startsWith('http://127.0.0.1'),
+      );
+      const other = tabs.find((tab) => tab.url?.startsWith('http://127.0.0.2'));
+      if (!current || !other) throw new Error('Missing test tabs');
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const waitFor = async (predicate, timeoutMs = 3000) => {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+          if (predicate()) return true;
+          await sleep(20);
+        }
+        return false;
+      };
+
+      // Put the popup on B, then start a fresh A refresh before switching back.
+      await chrome.tabs.update(other.id, { active: true });
+      await waitFor(
+        () =>
+          !document.querySelector('#export').disabled &&
+          (document.querySelector('#location')?.textContent ?? '').includes(
+            '127.0.0.2',
+          ),
+      );
+
+      const originalGetAll = chrome.cookies.getAll;
+      chrome.cookies.getAll = (details) => {
+        const delay = details.url?.startsWith('http://127.0.0.1')
+          ? 350
+          : details.url?.startsWith('http://127.0.0.2')
+            ? 900
+            : 0;
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            originalGetAll.call(chrome.cookies, details).then(resolve, reject);
+          }, delay);
+        });
+      };
+      try {
+        // A finishes at ~350 ms; B is still delayed, so a stale A result would
+        // make the buttons usable while B is the active tab.
+        await chrome.tabs.update(current.id, { active: true });
+        await sleep(80);
+        await chrome.tabs.update(other.id, { active: true });
+        await sleep(450);
+        return {
+          exportDisabled: document.querySelector('#export').disabled,
+          rows: document.querySelectorAll('#netscapeTable tbody tr').length,
+          exportAllAriaDisabled: document
+            .querySelector('#exportAll')
+            .getAttribute('aria-disabled'),
+        };
+      } finally {
+        chrome.cookies.getAll = originalGetAll;
+      }
+    });
+    if (
+      !staleRefresh.exportDisabled ||
+      staleRefresh.rows !== 0 ||
+      staleRefresh.exportAllAriaDisabled !== 'true'
+    ) {
+      throw new Error(
+        `Stale refresh restored old actions: ${JSON.stringify(staleRefresh)}`,
+      );
+    }
+    console.log('Chrome stale refresh generation guard OK');
     await popup.waitForFunction(
       () => {
         const location = document.querySelector('#location')?.textContent ?? '';
@@ -755,6 +853,75 @@ const main = async () => {
       );
     }
     console.log('Chrome sticky table header OK');
+
+    // Header String is valid for exactly one site. Clear the other origin's
+    // cookies and verify Export All stays enabled and writes one header line.
+    const oneSiteHeader = await popup.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const other = tabs.find((tab) => tab.url?.startsWith('http://127.0.0.2'));
+      if (!other) throw new Error('Missing 127.0.0.2 tab');
+      const cookies = (await chrome.cookies.getAll({})).filter((cookie) =>
+        cookie.domain.includes('127.0.0.2'),
+      );
+      for (const cookie of cookies) {
+        await chrome.cookies.remove({
+          url: `${cookie.secure ? 'https' : 'http'}://127.0.0.2${cookie.path || '/'}`,
+          name: cookie.name,
+          storeId: cookie.storeId,
+          ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {}),
+        });
+      }
+      await chrome.tabs.update(other.id, { active: true });
+      const started = Date.now();
+      while (Date.now() - started < 5000) {
+        if (
+          document.querySelectorAll('.site-item').length === 1 &&
+          document.querySelector('#exportAll').getAttribute('aria-disabled') ===
+            'false'
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const format = document.querySelector('#format');
+      format.value = 'header';
+      format.dispatchEvent(new Event('change', { bubbles: true }));
+      const button = document.querySelector('#exportAll');
+      const state = {
+        siteCount: document.querySelectorAll('.site-item').length,
+        ariaDisabled: button.getAttribute('aria-disabled'),
+        hint: document.querySelector('#exportAllHint').textContent,
+      };
+      return state;
+    });
+    if (
+      oneSiteHeader.siteCount !== 1 ||
+      oneSiteHeader.ariaDisabled !== 'false' ||
+      oneSiteHeader.hint !== ''
+    ) {
+      throw new Error(
+        `Single-site Header Export All state was wrong: ${JSON.stringify(oneSiteHeader)}`,
+      );
+    }
+    for (const name of readdirSync(downloadDir)) {
+      rmSync(path.join(downloadDir, name), { force: true });
+    }
+    await popup.evaluate(() => document.querySelector('#exportAll').click());
+    const headerFile = await waitForDownload(
+      downloadDir,
+      new RegExp(`^${escapeRegex('cookies.txt')}$`),
+    );
+    const headerText = readFileSync(headerFile, 'utf8').trim();
+    if (
+      headerText.split('\n').length !== 1 ||
+      !headerText.includes('sid=127.0.0.1') ||
+      headerText.includes('127.0.0.2')
+    ) {
+      throw new Error(
+        `Single-site Header export content was wrong: ${JSON.stringify(headerText)}`,
+      );
+    }
+    console.log('Chrome single-site Header Export All OK');
   } finally {
     if (browser) await browser.close();
     serverInfo.server.close();

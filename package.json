@@ -1,6 +1,6 @@
 {
   "name": "get-cookies.txt-locally-multiexport",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "private": true,
   "description": "Local-only cookies.txt exporter with multi-site batch export",
   "devDependencies": {
@@ -23,8 +23,8 @@
     "build:chrome": "node scripts/build.js",
     "build:firefox": "node scripts/build.js --firefox",
     "check": "biome check && npm run check-version",
-    "fix": "biome check --fix && npm run sync-version",
-    "fix:unsafe": "biome check --fix --unsafe && npm run sync-version",
+    "fix": "npm run sync-version && biome check --fix",
+    "fix:unsafe": "npm run sync-version && biome check --fix --unsafe",
     "check-version": "node scripts/check-version.js",
     "sync-version": "node scripts/check-version.js --fix",
     "test": "node --test tests/*.test.mjs",

@@ -163,6 +163,7 @@ test('interactive controls have visible focus and minimum target sizes', () => {
   assert.match(batchCss, /\.tab\s*\{[^}]*min-height: 24px/s);
   assert.match(batchCss, /\.tool-btn\s*\{[^}]*min-height: 24px/s);
   assert.match(batchCss, /\.site-item\s*\{[^}]*min-height: 24px/s);
+  assert.match(popupCss, /\.current-url a\s*\{[^}]*min-block-size: 24px/s);
   assert.match(popupOptionsCss, /select\s*\{[^}]*min-block-size: 24px/s);
   assert.match(
     popupOptionsCss,
@@ -175,8 +176,9 @@ test('interactive controls have visible focus and minimum target sizes', () => {
 });
 
 test('single-site initialization surfaces errors instead of swallowing them', () => {
-  assert.match(popupJs, /const handleSingleSiteError = \(error\) =>/);
-  assert.match(popupJs, /\.catch\(handleSingleSiteError\)/);
+  assert.match(popupJs, /const handleSingleSiteError = \(\s*error,/);
+  assert.match(popupJs, /const refreshSingleSite = \(\s*snapshot,/);
+  assert.match(popupJs, /handleSingleSiteError\(error, generation\)/);
   assert.match(popupJs, /Could not read cookies: \$\{error\.message\}/);
   assert.doesNotMatch(
     popupJs,
@@ -215,8 +217,43 @@ test('active-tab refresh shares one snapshot across panels', () => {
     block,
     /const batchPermissionMissing = !\(await hasHostPermission\(\)\);/,
   );
-  assert.match(block, /refreshSingleSite\(snapshot\)/);
-  assert.match(block, /loadSites\(snapshot, batchPermissionMissing\)/);
+  assert.match(block, /refreshSingleSite\(snapshot, generation\)/);
+  assert.match(
+    block,
+    /loadSites\(snapshot, batchPermissionMissing, generation\)/,
+  );
+});
+
+test('refresh generation prevents stale active-tab results from writing state', () => {
+  const refreshStart = popupJs.indexOf('const refreshActiveTab =');
+  const refreshEnd = popupJs.indexOf('refreshActiveTab();', refreshStart);
+  const refreshBlock = popupJs.slice(refreshStart, refreshEnd);
+  assert.match(
+    refreshBlock,
+    /const generation = \+\+activeTabRefreshGeneration;/,
+  );
+  assert.ok(
+    (refreshBlock.match(/generation !== activeTabRefreshGeneration/g) || [])
+      .length >= 4,
+  );
+
+  const initStart = popupJs.indexOf('const initializeSingleSite =');
+  const initEnd = popupJs.indexOf('const handleSingleSiteError', initStart);
+  const initBlock = popupJs.slice(initStart, initEnd);
+  assert.match(initBlock, /generation = activeTabRefreshGeneration/);
+  assert.ok(
+    (initBlock.match(/generation !== activeTabRefreshGeneration/g) || [])
+      .length >= 3,
+  );
+
+  const loadStart = popupJs.indexOf('const loadSites =');
+  const loadEnd = popupJs.indexOf('const initializeSingleSite', loadStart);
+  const loadBlock = popupJs.slice(loadStart, loadEnd);
+  assert.match(loadBlock, /generation = activeTabRefreshGeneration/);
+  assert.ok(
+    (loadBlock.match(/generation !== activeTabRefreshGeneration/g) || [])
+      .length >= 3,
+  );
 });
 
 test('active-tab refresh reacts to URL and permission changes', () => {
@@ -249,7 +286,7 @@ test('active-tab refresh failure enters an error state and disables actions', ()
   const refreshEnd = popupJs.indexOf('refreshActiveTab();', refreshStart);
   assert.match(
     popupJs.slice(refreshStart, refreshEnd),
-    /handleRefreshError\(error, batchPermissionMissing\)/,
+    /handleRefreshError\(error, batchPermissionMissing, generation\)/,
   );
 });
 
@@ -378,6 +415,14 @@ test('Export All stays focusable and exposes a non-live disabled reason', () => 
   assert.match(
     popupJs,
     /el\.format\.addEventListener\('change',[\s\S]*?updateSingleActionState\(\)/,
+  );
+  const allStart = popupJs.indexOf(
+    "document.querySelector('#exportAll').addEventListener",
+  );
+  const allEnd = popupJs.indexOf('});', allStart);
+  assert.doesNotMatch(
+    popupJs.slice(allStart, allEnd),
+    /if \(el\.format\.value === 'header'\)/,
   );
   assert.match(batchCss, /\.export-hint\s*\{[^}]*color: #8a4b00;/s);
   assert.match(batchCss, /\.export-hint\[hidden\]\s*\{[^}]*display: none;/s);
