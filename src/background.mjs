@@ -5,6 +5,12 @@ import getAllCookies, {
   getTabPartitionKey,
 } from './modules/get_all_cookies.mjs';
 import saveToFile from './modules/save_to_file.mjs';
+import {
+  UPDATE_NOTIFICATION_ID,
+  UPDATE_RELEASES_URL,
+  buildUpdateNotificationOptions,
+  registerUpdateNotificationHandlers,
+} from './modules/update_notification.mjs';
 
 /**
  * Set the badge text, ignoring the expected race where the tab has closed
@@ -43,44 +49,47 @@ chrome.tabs.onUpdated.addListener(scheduleBadgeCounter);
 chrome.tabs.onActivated.addListener(scheduleBadgeCounter);
 chrome.windows.onFocusChanged.addListener(scheduleBadgeCounter);
 
+const isFirefox = () =>
+  chrome.runtime.getManifest().browser_specific_settings !== undefined;
+
+const openReleases = () =>
+  runBackgroundTask('tabs.create', () =>
+    chrome.tabs.create({ url: UPDATE_RELEASES_URL }),
+  );
+
+const uninstallFromNotification = () => {
+  if (typeof chrome.management?.uninstallSelf !== 'function') {
+    console.warn('[notification] uninstallSelf is unavailable');
+    return;
+  }
+  runBackgroundTask('management.uninstallSelf', () =>
+    chrome.management.uninstallSelf({ showConfirmDialog: true }),
+  );
+};
+
 // Update notification
 chrome.runtime.onInstalled.addListener(({ previousVersion, reason }) => {
-  if (reason === 'update') {
-    const currentVersion = chrome.runtime.getManifest().version;
-    runBackgroundTask('notifications.create', () =>
-      chrome.notifications.create('updated', {
-        type: 'basic',
-        title: 'Get cookies.txt LOCALLY',
-        message: `Updated from ${previousVersion} to ${currentVersion}`,
-        iconUrl: '/images/icon128.png',
-        buttons: [{ title: 'Github Releases' }, { title: 'Uninstall' }],
+  if (reason !== 'update') return;
+
+  const currentVersion = chrome.runtime.getManifest().version;
+  runBackgroundTask('notifications.create', () =>
+    chrome.notifications.create(
+      UPDATE_NOTIFICATION_ID,
+      buildUpdateNotificationOptions({
+        previousVersion,
+        currentVersion,
+        iconUrl: chrome.runtime.getURL('images/icon128.png'),
+        isFirefox: isFirefox(),
       }),
-    );
-  }
+    ),
+  );
 });
 
-// Update notification's button handler
-chrome.notifications.onButtonClicked.addListener(
-  (notificationId, buttonIndex) => {
-    console.log(notificationId, buttonIndex);
-    if (notificationId === 'updated') {
-      switch (buttonIndex) {
-        case 0:
-          runBackgroundTask('tabs.create', () =>
-            chrome.tabs.create({
-              url: 'https://github.com/Dremous/Get-cookies.txt-Locally-MultiExport/releases',
-            }),
-          );
-          break;
-        case 1:
-          runBackgroundTask('management.uninstallSelf', () =>
-            chrome.management.uninstallSelf({ showConfirmDialog: true }),
-          );
-          break;
-      }
-    }
-  },
-);
+registerUpdateNotificationHandlers({
+  notifications: chrome.notifications,
+  openReleases,
+  uninstall: uninstallFromNotification,
+});
 
 // Save file message listener for firefox.
 chrome.runtime.onMessage.addListener(

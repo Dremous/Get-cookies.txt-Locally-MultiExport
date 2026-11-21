@@ -124,8 +124,14 @@ export default async function saveToFile(
     anchor.rel = 'noopener';
     anchor.style.display = 'none';
     document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    try {
+      anchor.click();
+    } catch (error) {
+      cleanup();
+      throw error;
+    } finally {
+      anchor.remove();
+    }
     if (!cleanedUp) {
       cleanupTimer = setTimeout(cleanup, CLEANUP_TIMEOUT_MS);
       anchorCheckTimer = setTimeout(() => {

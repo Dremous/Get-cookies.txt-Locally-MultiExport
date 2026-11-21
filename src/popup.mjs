@@ -6,6 +6,7 @@ import {
 } from './modules/batch_export.mjs';
 import { writeClipboard } from './modules/clipboard.mjs';
 import { formatMap, jsonToNetscapeMapper } from './modules/cookie_format.mjs';
+import { createCopyFeedback } from './modules/copy_feedback.mjs';
 import { createExportGuard } from './modules/export_guard.mjs';
 import getAllCookies, {
   getAllCookiesForBatch,
@@ -104,6 +105,7 @@ let sitesReady = false;
 /** @type {string | null} */
 let sitesLoadError = null;
 const exportGuard = createExportGuard();
+const copyFeedback = createCopyFeedback();
 
 // ----------------------------------------------
 // DOM
@@ -212,11 +214,7 @@ const splitFileName = (fileName) => {
  */
 const setClipboard = async (text, button = document.querySelector('#copy')) => {
   await writeClipboard(text);
-  if (!button) return;
-  button.classList.add('copied');
-  setTimeout(() => {
-    button.classList.remove('copied');
-  }, 2000);
+  copyFeedback.show(button);
 };
 
 /** @param {string} message @param {'info' | 'error' | 'warning'} [kind] */
@@ -258,7 +256,10 @@ const updateSingleActionState = () => {
   el.exportButton.disabled = blocked;
   el.exportAsButton.disabled = blocked;
   el.exportAllButton.disabled =
-    hostPermissionMissing || exportGuard.busy || !sitesReady;
+    hostPermissionMissing ||
+    exportGuard.busy ||
+    !sitesReady ||
+    sites.length === 0;
 };
 
 const persistSelection = () => {

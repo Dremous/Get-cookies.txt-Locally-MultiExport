@@ -57,6 +57,9 @@ npm run build:firefox
 
 Unzip `dist/get-cookies.txt-locally_v*_firefox.zip` and select its `manifest.json` via **Load Temporary Add-on**.
 
+Firefox 140+ is required on desktop (Android 142+), because the manifest uses
+`browser_specific_settings.gecko.data_collection_permissions`.
+
 If the site list is empty after loading the temporary add-on, open `about:addons`, select the extension, open
 **Permissions**, and enable **Access your data for all websites** so the `chrome.cookies` API can read cookies.
 
@@ -132,7 +135,7 @@ npm run build         # dist/*_chrome.zip and dist/*_firefox.zip
 xvfb-run -a npm run test:chrome
                       # Chrome/Chromium E2E for popup -> chrome.downloads (needs CHROME_BIN if not on PATH)
 FIREFOX_BIN=/path/to/firefox npm run test:firefox
-                      # Firefox E2E for popup -> background -> downloads (needs Firefox 115+)
+                      # Firefox E2E for popup -> background -> downloads (needs Firefox 140+)
 ```
 
 Layout:

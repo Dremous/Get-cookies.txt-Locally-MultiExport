@@ -67,7 +67,13 @@ test('tabs expose the ARIA tab pattern and roving tabindex', () => {
   assert.match(html, /id="tabMulti"[\s\S]*?tabindex="-1"/);
   assert.match(html, /aria-labelledby="tabSingle"/);
   assert.match(html, /aria-labelledby="tabMulti"/);
-  assert.match(html, /role="tabpanel"[\s\S]*?tabindex="0"/);
+  for (const panelId of ['singlePanel', 'multiPanel']) {
+    const openingTag = html.match(
+      new RegExp(`<section\\s+id="${panelId}"[^>]*>`),
+    )?.[0];
+    assert.ok(openingTag);
+    assert.doesNotMatch(openingTag, /tabindex=/);
+  }
 });
 
 test('search, table, and icons have accessible names', () => {
@@ -95,7 +101,7 @@ test('single-site actions start disabled and the table container can take focus'
   assert.match(popupJs, /el\.copyButton\.disabled = blocked;/);
   assert.match(
     popupJs,
-    /el\.exportAllButton\.disabled =\s*hostPermissionMissing \|\| exportGuard\.busy \|\| !sitesReady;/,
+    /el\.exportAllButton\.disabled =\s*hostPermissionMissing \|\|\s*exportGuard\.busy \|\|\s*!sitesReady \|\|\s*sites\.length === 0;/,
   );
 });
 

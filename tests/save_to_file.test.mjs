@@ -289,6 +289,54 @@ test('saveToFile keeps slow downloads alive and probes anchor completion', () =>
   assert.match(source, /chrome\.downloads\.search\(\{\}\)/);
 });
 
+test('saveToFile cleans up the anchor and object URL when click throws', async () => {
+  let removed = false;
+  const anchor = {
+    href: '',
+    download: '',
+    rel: '',
+    style: {},
+    click: () => {
+      throw new Error('anchor click failed');
+    },
+    remove: () => {
+      removed = true;
+    },
+  };
+  const fake = {
+    download: async () => {
+      throw new Error('downloads.download should not run');
+    },
+    onCreated: {
+      addListener: () => {},
+      removeListener: () => {},
+    },
+    onChanged: {
+      addListener: () => {},
+      removeListener: () => {},
+    },
+  };
+  const documentFake = {
+    createElement: () => anchor,
+    body: { appendChild: () => {} },
+  };
+
+  await withDownloads(fake, async ({ revoked }) => {
+    await withDocument(documentFake, async () => {
+      await assert.rejects(
+        () =>
+          saveToFile('cookie=value', 'cookies', {
+            ext: '.txt',
+            mimeType: 'text/plain',
+          }),
+        /anchor click failed/,
+      );
+      assert.equal(removed, true);
+      assert.equal(revoked.length, 1);
+    });
+  });
+});
+
 test('saveToFile probes an anchor download that finished before listeners', async () => {
   let clicked = false;
   const anchor = {

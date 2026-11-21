@@ -23,4 +23,12 @@ test('Firefox manifest only overlays Firefox-specific fields', () => {
     firefoxManifest.browser_specific_settings.gecko.id,
     '{2d467287-f51a-4e53-a13c-0855efcd6975}',
   );
+  assert.equal(
+    firefoxManifest.browser_specific_settings.gecko.strict_min_version,
+    '140.0',
+  );
+  assert.equal(
+    firefoxManifest.browser_specific_settings.gecko_android.strict_min_version,
+    '142.0',
+  );
 });

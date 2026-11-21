@@ -52,6 +52,9 @@ npm run build:firefox
 把 `dist/get-cookies.txt-locally_v*_firefox.zip` 解压到一个文件夹，打开
 `about:debugging#/runtime/this-firefox`，选择「临时载入附加组件」，选中解压目录里的 `manifest.json`。
 
+桌面端 Firefox 需 140+（Android 142+），因为 manifest 使用了
+`browser_specific_settings.gecko.data_collection_permissions`。
+
 如果加载后站点列表为空，打开 `about:addons`，选中本扩展，进入「权限」页，启用
 「访问所有网站的数据」（Access your data for all websites），让 `chrome.cookies` 能读取 cookie。
 
@@ -124,7 +127,7 @@ npm run build         # 生成 dist/*_chrome.zip 与 dist/*_firefox.zip
 xvfb-run -a npm run test:chrome
                       # Chrome/Chromium 保存链路 E2E（不在 PATH 时设置 CHROME_BIN）
 FIREFOX_BIN=/path/to/firefox npm run test:firefox
-                      # Firefox 保存链路端到端测试（需要 Firefox 115+）
+                      # Firefox 保存链路端到端测试（需要 Firefox 140+）
 ```
 
 目录结构：
