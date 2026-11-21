@@ -80,13 +80,20 @@
               <span class="material-symbols-outlined" aria-hidden="true">check</span>
             </span>
           </button>
-          <button id="exportAll" class="export-btn large export-all" disabled>
+          <button
+            id="exportAll"
+            class="export-btn large export-all"
+            aria-describedby="exportAllHint"
+            disabled
+          >
             <span class="button-text">
               Export All Cookies
               <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </span>
           </button>
         </div>
+
+        <p id="exportAllHint" class="export-hint" hidden></p>
 
         <p id="singleStatus" class="batch-status" role="status"></p>
 

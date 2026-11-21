@@ -111,6 +111,10 @@ let currentSiteKey = '';
 let batchHostPermissionMissing = false;
 /** @type {boolean} */
 let singleSiteReady = false;
+/** @type {Awaited<ReturnType<typeof getActiveTabSnapshot>> | null} */
+let lastActiveSnapshot = null;
+/** @type {Awaited<ReturnType<typeof getActiveTabSnapshot>> | null} */
+let currentSiteSnapshot = null;
 /** @type {boolean} */
 let sitesReady = false;
 /** @type {string | null} */
@@ -145,6 +149,7 @@ const el = {
   exportButton: document.querySelector('#export'),
   exportAsButton: document.querySelector('#exportAs'),
   exportAllButton: document.querySelector('#exportAll'),
+  exportAllHint: document.querySelector('#exportAllHint'),
 };
 
 // ----------------------------------------------
@@ -257,6 +262,22 @@ const setLocation = (url) => {
 };
 
 /**
+ * Explain why Export All Cookies is unavailable. Batch permission failures
+ * used to be reported only in the multi-site panel, so the single-site panel
+ * showed a disabled button with no visible reason.
+ * @returns {string}
+ */
+const exportAllBlockedReason = () => {
+  if (batchHostPermissionMissing) return batchHostPermissionMessage();
+  if (!sitesReady) return 'Reading cookies…';
+  if (sites.length === 0) return 'No cookies found in this cookie store.';
+  if (el.format.value === 'header' && sites.length > 1) {
+    return 'Header String is single-site only. Choose Netscape or JSON for Export All Cookies.';
+  }
+  return '';
+};
+
+/**
  * Disable actions that cannot run without a resolved active site. The current
  * site buttons depend only on a successful current-site read; export all still
  * needs the full `<all_urls>` grant because it enumerates the whole store.
@@ -266,11 +287,10 @@ const updateSingleActionState = () => {
   el.copyButton.disabled = blocked;
   el.exportButton.disabled = blocked;
   el.exportAsButton.disabled = blocked;
-  el.exportAllButton.disabled =
-    batchHostPermissionMissing ||
-    exportGuard.busy ||
-    !sitesReady ||
-    sites.length === 0;
+  const exportAllReason = exportAllBlockedReason();
+  el.exportAllButton.disabled = Boolean(exportAllReason) || exportGuard.busy;
+  el.exportAllHint.textContent = exportAllReason;
+  el.exportAllHint.hidden = exportAllReason === '';
 };
 
 const persistSelection = () => {
@@ -509,6 +529,7 @@ const loadSites = async (snapshot, permissionMissing) => {
  * @param {Awaited<ReturnType<typeof getActiveTabSnapshot>>} [snapshot]
  */
 const initializeSingleSite = async (snapshot) => {
+  currentSiteSnapshot = null;
   singleSiteReady = false;
   updateSingleActionState();
   document.querySelector('#netscapeTable tbody').replaceChildren();
@@ -550,6 +571,7 @@ const initializeSingleSite = async (snapshot) => {
     return tr;
   });
   document.querySelector('#netscapeTable tbody').replaceChildren(...tableRows);
+  currentSiteSnapshot = activeSnapshot;
   singleSiteReady = true;
   updateSingleActionState();
   setSingleStatus('');
@@ -562,6 +584,7 @@ const initializeSingleSite = async (snapshot) => {
 };
 
 const handleSingleSiteError = (error) => {
+  currentSiteSnapshot = null;
   singleSiteReady = false;
   updateSingleActionState();
   document.querySelector('#netscapeTable tbody').replaceChildren();
@@ -579,6 +602,8 @@ const handleSingleSiteError = (error) => {
  * @param {boolean} [permissionMissing]
  */
 const handleRefreshError = (error, permissionMissing = false) => {
+  currentSiteSnapshot = null;
+  lastActiveSnapshot = null;
   singleSiteReady = false;
   sitesReady = false;
   sites = [];
@@ -611,11 +636,20 @@ const refreshSingleSite = (snapshot) => {
 let activeTabRefresh = Promise.resolve();
 
 const refreshActiveTab = () => {
+  // Invalidate current-site actions before awaiting anything. A click that
+  // arrives while the new tab snapshot is still loading must not mix the old
+  // table with cookies from the new tab.
+  currentSiteSnapshot = null;
+  singleSiteReady = false;
+  sitesReady = false;
+  updateSingleActionState();
+  updateSummary();
   // Serialize whole-popup refreshes and share one snapshot between the
   // current-site table and the batch site list.
   activeTabRefresh = activeTabRefresh
     .then(async () => {
       const snapshot = await getActiveTabSnapshot();
+      lastActiveSnapshot = snapshot;
       const batchPermissionMissing = !(await hasHostPermission());
       await refreshSingleSite(snapshot);
       await loadSites(snapshot, batchPermissionMissing);
@@ -690,9 +724,11 @@ el.tabMulti.addEventListener('keydown', handleTabKeydown);
 // ----------------------------------------------
 
 const getCurrentSiteDetails = async () => {
-  const snapshot = await getActiveTabSnapshot();
-  const { url, partitionKey, storeId, tab } = snapshot;
-  if (!url) throw new Error('No active page URL');
+  // Bind actions to the exact snapshot that produced the visible table. Re-
+  // reading the active tab here could mix an older table with a newer tab.
+  const snapshot = currentSiteSnapshot;
+  const { url, partitionKey, storeId, tab } = snapshot ?? {};
+  if (!snapshot || !url) throw new Error('No active page URL');
   const details = { url: url.href, storeId };
   if (partitionKey) details.partitionKey = partitionKey;
   return { url, details, tab };
@@ -766,7 +802,13 @@ document.querySelector('#copy').addEventListener('click', async () => {
 document.querySelector('#exportAll').addEventListener('click', async () => {
   if (!beginExclusiveAction()) return;
   try {
-    const snapshot = await getActiveTabSnapshot();
+    if (el.format.value === 'header') {
+      throw new Error(
+        'Header String is single-site only; choose Netscape or JSON for Export All Cookies',
+      );
+    }
+    const snapshot = lastActiveSnapshot ?? (await getActiveTabSnapshot());
+    lastActiveSnapshot = snapshot;
     const details = { storeId: snapshot.storeId };
     if (snapshot.partitionKey) details.partitionKey = snapshot.partitionKey;
     const { text, format, warnings } = await getCookieText(
@@ -797,6 +839,7 @@ el.format.addEventListener('change', () => {
     el.format.value === 'header' ? 'netscape' : el.format.value;
   el.batchFormat.value = batchValue;
   localStorage.setItem(STORAGE_BATCH_FORMAT, batchValue);
+  updateSingleActionState();
 });
 
 // ----------------------------------------------
@@ -818,6 +861,7 @@ el.batchFormat.addEventListener('change', () => {
   localStorage.setItem(STORAGE_BATCH_FORMAT, el.batchFormat.value);
   el.format.value = el.batchFormat.value;
   localStorage.setItem(STORAGE_FORMAT, el.batchFormat.value);
+  updateSingleActionState();
 });
 
 const savedBatchMode = localStorage.getItem(STORAGE_BATCH_MODE);

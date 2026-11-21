@@ -204,6 +204,17 @@
   font-size: 0.8rem;
 }
 
+.export-hint {
+  margin: 0.5rem 0 0;
+  color: #8a4b00;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.export-hint[hidden] {
+  display: none;
+}
+
 .batch-status[data-kind="error"] {
   color: #c0392b;
 }
@@ -303,6 +314,10 @@
   }
 
   .batch-status[data-kind="warning"] {
+    color: #ffb86b;
+  }
+
+  .export-hint {
     color: #ffb86b;
   }
 

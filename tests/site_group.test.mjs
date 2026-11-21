@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  PUBLIC_SUFFIX_EXCEPTIONS,
+  PUBLIC_SUFFIX_RULES,
+  PUBLIC_SUFFIX_WILDCARDS,
+} from '../src/modules/public_suffix_data.mjs';
+import {
   getSiteKey,
   getTopLevelSite,
   groupCookiesBySite,
@@ -18,6 +23,16 @@ const cookie = (overrides = {}) => ({
   value: 'abc',
   expirationDate: 1893456000,
   ...overrides,
+});
+
+test('site grouping ships the full Public Suffix List', () => {
+  assert.ok(PUBLIC_SUFFIX_RULES.size > 10000);
+  assert.ok(PUBLIC_SUFFIX_WILDCARDS.size > 300);
+  assert.ok(PUBLIC_SUFFIX_EXCEPTIONS.size >= 8);
+  assert.ok(PUBLIC_SUFFIX_RULES.has('com.pe'));
+  assert.ok(PUBLIC_SUFFIX_RULES.has('github.io'));
+  assert.ok(PUBLIC_SUFFIX_WILDCARDS.has('ck'));
+  assert.ok(PUBLIC_SUFFIX_EXCEPTIONS.has('www.ck'));
 });
 
 test('normalizeDomain strips leading dots and lowercases', () => {
@@ -50,6 +65,32 @@ test('getSiteKey separates tenants of private public suffixes', () => {
   assert.equal(getSiteKey('github.io'), 'github.io');
   assert.equal(getSiteKey('vercel.app'), 'vercel.app');
   assert.equal(getSiteKey('s3.amazonaws.com'), 's3.amazonaws.com');
+});
+
+test('getSiteKey handles two-label suffixes missing from the old compact list', () => {
+  assert.equal(getSiteKey('a.foo.com.pe'), 'foo.com.pe');
+  assert.equal(getSiteKey('b.bar.com.pe'), 'bar.com.pe');
+  assert.equal(
+    getTopLevelSite('https://a.foo.com.pe/path'),
+    'https://foo.com.pe',
+  );
+  assert.equal(
+    getTopLevelSite('https://b.bar.com.pe:8443/path'),
+    'https://bar.com.pe',
+  );
+  assert.notEqual(getSiteKey('a.foo.com.pe'), getSiteKey('b.bar.com.pe'));
+});
+
+test('getSiteKey follows wildcard and exception public-suffix rules', () => {
+  // "*.ck" makes foo.ck a public suffix, so bar.foo.ck is registrable.
+  assert.equal(getSiteKey('foo.ck'), 'foo.ck');
+  assert.equal(getSiteKey('bar.foo.ck'), 'bar.foo.ck');
+  // "!www.ck" makes www.ck registrable instead of a public suffix.
+  assert.equal(getSiteKey('www.ck'), 'www.ck');
+  assert.equal(getSiteKey('shop.www.ck'), 'www.ck');
+  // "!city.kawasaki.jp" wins over "*.kawasaki.jp".
+  assert.equal(getSiteKey('city.kawasaki.jp'), 'city.kawasaki.jp');
+  assert.equal(getSiteKey('www.city.kawasaki.jp'), 'city.kawasaki.jp');
 });
 
 test('getSiteKey keeps normal subdomains grouped', () => {

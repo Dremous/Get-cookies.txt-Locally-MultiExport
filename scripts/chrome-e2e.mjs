@@ -408,6 +408,40 @@ const main = async () => {
       { timeout: 3000, polling: 50 },
     );
 
+    // Header String cannot represent multiple sites: Export All must be
+    // disabled and explain why instead of silently joining names from two
+    // unrelated domains into one request header.
+    const headerExportAll = await popup.evaluate(() => {
+      const format = document.querySelector('#format');
+      format.value = 'header';
+      format.dispatchEvent(new Event('change', { bubbles: true }));
+      const hint = document.querySelector('#exportAllHint');
+      return {
+        disabled: document.querySelector('#exportAll').disabled,
+        hint: hint.textContent,
+        hintHidden: hint.hidden,
+      };
+    });
+    if (
+      !headerExportAll.disabled ||
+      headerExportAll.hintHidden ||
+      !headerExportAll.hint.includes('single-site only')
+    ) {
+      throw new Error(
+        `Header String Export All state was wrong: ${JSON.stringify(headerExportAll)}`,
+      );
+    }
+    console.log('Chrome Header String Export All guard OK');
+    await popup.evaluate(() => {
+      const format = document.querySelector('#format');
+      format.value = 'netscape';
+      format.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await popup.waitForFunction(
+      () => !document.querySelector('#exportAll').disabled,
+      { timeout: 3000, polling: 50 },
+    );
+
     // Export All Cookies has a fixed base name and includes every site.
     await popup.evaluate(() => document.querySelector('#exportAll').click());
     const allName = 'cookies.txt';

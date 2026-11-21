@@ -1,91 +1,69 @@
+import {
+  PUBLIC_SUFFIX_EXCEPTIONS,
+  PUBLIC_SUFFIX_RULES,
+  PUBLIC_SUFFIX_WILDCARDS,
+} from './public_suffix_data.mjs';
+
 /**
- * Public suffixes that are commonly used by cookie-bearing sites.
- *
- * The list covers two-label country-code suffixes (e.g. "co.uk", "com.cn")
- * and common private suffixes (e.g. "github.io", "vercel.app",
- * "s3.amazonaws.com"). Without these private entries every tenant of a
- * shared host such as "alice.github.io" and "bob.github.io" would collapse
- * into one "github.io" bucket.
- *
- * The list is intentionally compact: it covers the most common cases without
- * shipping the full Public Suffix List (which is hundreds of kilobytes)
- * inside the extension.
+ * Maximum rule depth to inspect. The official Public Suffix List currently
+ * tops out well below this; the limit only prevents a pathological hostname
+ * from turning one lookup into an unbounded number of joins.
  */
-const PUBLIC_SUFFIXES = new Set([
-  'ac.cn',
-  'ac.jp',
-  'ac.uk',
-  'co.id',
-  'co.il',
-  'co.in',
-  'co.jp',
-  'co.kr',
-  'co.nz',
-  'co.th',
-  'co.uk',
-  'co.za',
-  'com.ar',
-  'com.au',
-  'com.br',
-  'com.cn',
-  'com.co',
-  'com.eg',
-  'com.es',
-  'com.hk',
-  'com.mx',
-  'com.my',
-  'com.ph',
-  'com.pl',
-  'com.ru',
-  'com.sa',
-  'com.sg',
-  'com.tr',
-  'com.tw',
-  'com.ua',
-  'com.vn',
-  'edu.au',
-  'edu.cn',
-  'edu.hk',
-  'edu.sg',
-  'gov.au',
-  'gov.cn',
-  'gov.hk',
-  'gov.uk',
-  'in.th',
-  'net.au',
-  'net.cn',
-  'net.hk',
-  'net.nz',
-  'net.sg',
-  'org.au',
-  'org.cn',
-  'org.hk',
-  'org.nz',
-  'org.sg',
-  'org.uk',
-  // Common private suffixes from the Public Suffix List.
-  'appspot.com',
-  'azurewebsites.net',
-  'blogspot.com',
-  'cloudfront.net',
-  'firebaseapp.com',
-  'fly.dev',
-  'github.io',
-  'githubusercontent.com',
-  'gitlab.io',
-  'herokuapp.com',
-  'netlify.app',
-  'notion.site',
-  'onrender.com',
-  'pages.dev',
-  'r2.dev',
-  'readthedocs.io',
-  's3.amazonaws.com',
-  'vercel.app',
-  'web.app',
-  'wixsite.com',
-  'workers.dev',
-]);
+const MAX_RULE_LABELS = 16;
+
+/**
+ * Get the number of labels in the public suffix for a hostname.
+ *
+ * This follows the Public Suffix List matching order: an exception rule wins
+ * over an exact or wildcard rule, then the most specific exact/wildcard rule
+ * wins. A host that is itself a public suffix has no registrable parent.
+ * @param {string} host
+ * @returns {number}
+ */
+const getPublicSuffixLength = (host) => {
+  const labels = host.split('.');
+
+  // Exception rules ("!www.ck") are public suffixes with the leftmost label
+  // removed. Match the longest exception suffix so subdomains of an exception
+  // stay grouped with the exception host.
+  for (
+    let suffixLength = Math.min(labels.length, MAX_RULE_LABELS);
+    suffixLength >= 1;
+    suffixLength--
+  ) {
+    const suffix = labels.slice(-suffixLength).join('.');
+    if (PUBLIC_SUFFIX_EXCEPTIONS.has(suffix)) {
+      return Math.max(0, suffixLength - 1);
+    }
+  }
+
+  let publicSuffixLength = 0;
+  for (
+    let suffixLength = Math.min(labels.length, MAX_RULE_LABELS);
+    suffixLength >= 1;
+    suffixLength--
+  ) {
+    const suffix = labels.slice(-suffixLength).join('.');
+    if (PUBLIC_SUFFIX_RULES.has(suffix)) {
+      publicSuffixLength = suffixLength;
+      break;
+    }
+  }
+
+  for (
+    let baseLength = Math.min(labels.length - 1, MAX_RULE_LABELS);
+    baseLength >= 1;
+    baseLength--
+  ) {
+    const base = labels.slice(-baseLength).join('.');
+    if (PUBLIC_SUFFIX_WILDCARDS.has(base)) {
+      publicSuffixLength = Math.max(publicSuffixLength, baseLength + 1);
+      break;
+    }
+  }
+
+  return publicSuffixLength || 1;
+};
 
 /**
  * Normalize a cookie domain ("`.Example.COM.`" -> "example.com").
@@ -123,22 +101,12 @@ export const getSiteKey = (domain) => {
   if (!host) return '';
   if (host === 'localhost' || isIpAddress(host)) return host;
 
-  if (PUBLIC_SUFFIXES.has(host)) return host;
-
   const labels = host.split('.');
   if (labels.length <= 1) return host;
 
-  for (
-    let suffixLength = Math.min(labels.length - 1, 3);
-    suffixLength >= 1;
-    suffixLength--
-  ) {
-    const suffix = labels.slice(-suffixLength).join('.');
-    if (PUBLIC_SUFFIXES.has(suffix)) {
-      return labels.slice(-(suffixLength + 1)).join('.');
-    }
-  }
-  return labels.slice(-2).join('.');
+  const publicSuffixLength = getPublicSuffixLength(host);
+  if (publicSuffixLength >= labels.length) return host;
+  return labels.slice(-(publicSuffixLength + 1)).join('.');
 };
 
 /**

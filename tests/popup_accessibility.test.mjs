@@ -101,7 +101,7 @@ test('single-site actions start disabled and the table container can take focus'
   assert.match(popupJs, /el\.copyButton\.disabled = blocked;/);
   assert.match(
     popupJs,
-    /el\.exportAllButton\.disabled =\s*batchHostPermissionMissing \|\|\s*exportGuard\.busy \|\|\s*!sitesReady \|\|\s*sites\.length === 0;/,
+    /el\.exportAllButton\.disabled = Boolean\(exportAllReason\) \|\| exportGuard\.busy;/,
   );
   assert.match(
     popupJs,
@@ -313,4 +313,53 @@ test('Firefox host-permission guidance and partition warnings are visible', () =
 
 test('table-nowrap uses the checkbox state as the explicit class target', () => {
   assert.match(nowrapJs, /classList\.toggle\('nowrap', e\.target\.checked\)/);
+});
+
+test('Export All has a visible, accessible reason when disabled', () => {
+  assert.match(
+    html,
+    /id="exportAll"[\s\S]*?aria-describedby="exportAllHint"[\s\S]*?disabled/,
+  );
+  assert.match(html, /id="exportAllHint" class="export-hint" hidden/);
+  assert.match(popupJs, /const exportAllBlockedReason = \(\) =>/);
+  assert.match(
+    popupJs,
+    /Header String is single-site only\. Choose Netscape or JSON for Export All Cookies\./,
+  );
+  assert.match(popupJs, /el\.exportAllHint\.textContent = exportAllReason;/);
+  assert.match(
+    popupJs,
+    /el\.format\.addEventListener\('change',[\s\S]*?updateSingleActionState\(\)/,
+  );
+  assert.match(batchCss, /\.export-hint\s*\{[^}]*color: #8a4b00;/s);
+  assert.match(batchCss, /\.export-hint\[hidden\]\s*\{[^}]*display: none;/s);
+});
+
+test('current-site actions use the snapshot that produced the table', () => {
+  const start = popupJs.indexOf('const getCurrentSiteDetails =');
+  const end = popupJs.indexOf("document.querySelector('#export')", start);
+  const block = popupJs.slice(start, end);
+  assert.match(block, /const snapshot = currentSiteSnapshot;/);
+  assert.doesNotMatch(block, /getActiveTabSnapshot/);
+
+  const refreshStart = popupJs.indexOf('const refreshActiveTab =');
+  const refreshEnd = popupJs.indexOf('refreshActiveTab();', refreshStart);
+  const refreshBlock = popupJs.slice(refreshStart, refreshEnd);
+  assert.ok(
+    refreshBlock.indexOf('singleSiteReady = false') <
+      refreshBlock.indexOf('await getActiveTabSnapshot'),
+  );
+  assert.match(refreshBlock, /currentSiteSnapshot = null/);
+  assert.match(refreshBlock, /lastActiveSnapshot = snapshot/);
+
+  const allStart = popupJs.indexOf(
+    "document.querySelector('#exportAll').addEventListener",
+  );
+  const allEnd = popupJs.indexOf('});', allStart);
+  const allBlock = popupJs.slice(allStart, allEnd);
+  assert.doesNotMatch(
+    allBlock,
+    /const snapshot = await getActiveTabSnapshot\(\)/,
+  );
+  assert.match(allBlock, /lastActiveSnapshot/);
 });

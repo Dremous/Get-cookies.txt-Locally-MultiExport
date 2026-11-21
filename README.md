@@ -114,6 +114,8 @@ The selection is stored in `localStorage`, so reopening the popup keeps your pre
 - **JSON** — the raw `chrome.cookies.Cookie` array, including `partitionKey` and every CHIPS variant.
 - **Header String** — `name=value; name=value;`, ready to paste into a `Cookie` request header. This format is
   single-site only; the multi-site panel does not offer it because one header cannot represent multiple domains.
+  **Export All Cookies** is also disabled for Header String when the cookie store contains more than one site;
+  choose Netscape or JSON instead.
   Like Netscape it cannot encode a partition key, so the same collapse rule applies.
 
 ## Permissions
@@ -153,6 +155,7 @@ src/
     get_all_cookies.mjs cookie store + partition handling (upstream, + batch helper)
     save_to_file.mjs    download helper (upstream, now binary-capable)
     site_group.mjs      registrable-domain grouping
+    public_suffix_data.mjs  generated Public Suffix List data (MPL 2.0)
     batch_export.mjs    merged / per-site / ZIP payload builder
     zip_writer.mjs      dependency-free STORE-method ZIP writer
 tests/                  node:test suites
@@ -171,6 +174,9 @@ tests/                  node:test suites
   still uses the downloads API for its save dialog.
 - The ZIP writer stores files without compression — cookie files are small and this keeps the code auditable.
 - Firefox support follows upstream (background page for saving files).
+- Registrable-domain grouping uses the full [Public Suffix List](https://publicsuffix.org/list/)
+  (MPL 2.0), so country-code and private suffixes such as `com.pe` and `github.io` are matched
+  correctly. Regenerate the data with `npm run update-psl`.
 - The Chrome and Firefox bundles include `LICENSE` so the MIT notice travels with the distributed code.
 
 ## License
