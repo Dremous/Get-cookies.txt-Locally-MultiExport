@@ -84,7 +84,7 @@
             id="exportAll"
             class="export-btn large export-all"
             aria-describedby="exportAllHint"
-            disabled
+            aria-disabled="true"
           >
             <span class="button-text">
               Export All Cookies
@@ -93,7 +93,14 @@
           </button>
         </div>
 
-        <p id="exportAllHint" class="export-hint" hidden></p>
+        <p
+          id="exportAllHint"
+          class="export-hint"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          hidden
+        ></p>
 
         <p id="singleStatus" class="batch-status" role="status"></p>
 

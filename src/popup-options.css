@@ -12,6 +12,23 @@
   gap: 0.5em;
 }
 
+select {
+  min-block-size: 24px;
+  padding-block: 2px;
+  box-sizing: border-box;
+}
+
+.nowrap-option {
+  align-items: center;
+}
+
+.nowrap-option input[type="checkbox"] {
+  flex: none;
+  inline-size: 24px;
+  block-size: 24px;
+  margin: 0;
+}
+
 .netscape-table.nowrap tbody {
   white-space: nowrap;
 }

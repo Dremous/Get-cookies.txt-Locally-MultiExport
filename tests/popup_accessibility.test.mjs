@@ -26,6 +26,10 @@ const popupJs = readFileSync(
   new URL('../src/popup.mjs', import.meta.url),
   'utf8',
 );
+const popupOptionsCss = readFileSync(
+  new URL('../src/popup-options.css', import.meta.url),
+  'utf8',
+);
 const nowrapJs = readFileSync(
   new URL('../src/table-nowrap.js', import.meta.url),
   'utf8',
@@ -92,16 +96,20 @@ test('search, table, and icons have accessible names', () => {
 });
 
 test('single-site actions start disabled and the table container can take focus', () => {
-  for (const id of ['export', 'exportAs', 'copy', 'exportAll']) {
+  for (const id of ['export', 'exportAs', 'copy']) {
     assert.match(html, new RegExp(`id="${id}"[^>]*disabled`));
   }
+  const exportAllTag = html.match(/<button\s+id="exportAll"[\s\S]*?>/)?.[0];
+  assert.ok(exportAllTag);
+  assert.match(exportAllTag, /aria-disabled="true"/);
+  assert.doesNotMatch(exportAllTag, /\sdisabled(?=\s|>)/);
   assert.match(popupCss, /\.table-container:focus-visible\s*\{/);
   assert.match(darkCss, /\.table-container:focus-visible\s*\{/);
   assert.match(popupJs, /const updateSingleActionState = \(\) =>/);
   assert.match(popupJs, /el\.copyButton\.disabled = blocked;/);
   assert.match(
     popupJs,
-    /el\.exportAllButton\.disabled = Boolean\(exportAllReason\) \|\| exportGuard\.busy;/,
+    /el\.exportAllButton\.setAttribute\(\s*'aria-disabled',\s*String\(Boolean\(exportAllReason\) \|\| exportGuard\.busy\),\s*\)/s,
   );
   assert.match(
     popupJs,
@@ -155,6 +163,15 @@ test('interactive controls have visible focus and minimum target sizes', () => {
   assert.match(batchCss, /\.tab\s*\{[^}]*min-height: 24px/s);
   assert.match(batchCss, /\.tool-btn\s*\{[^}]*min-height: 24px/s);
   assert.match(batchCss, /\.site-item\s*\{[^}]*min-height: 24px/s);
+  assert.match(popupOptionsCss, /select\s*\{[^}]*min-block-size: 24px/s);
+  assert.match(
+    popupOptionsCss,
+    /\.nowrap-option input\[type="checkbox"\]\s*\{[^}]*inline-size: 24px;[^}]*block-size: 24px;/s,
+  );
+  assert.match(
+    batchCss,
+    /\.export-btn\[aria-disabled="true"\]\s*\{[^}]*cursor: not-allowed;/s,
+  );
 });
 
 test('single-site initialization surfaces errors instead of swallowing them', () => {
@@ -287,6 +304,23 @@ test('current-site access does not require the all-sites host grant', () => {
   assert.match(popupJs, /singleSiteHostPermissionMessage/);
 });
 
+test('batch read failures do not clear the successfully read current site', () => {
+  const loadStart = popupJs.indexOf('const loadSites =');
+  const loadEnd = popupJs.indexOf('const initializeSingleSite', loadStart);
+  const block = popupJs.slice(loadStart, loadEnd);
+  assert.match(block, /try \{[\s\S]*?getAllCookiesForBatch/);
+  assert.match(block, /catch \(error\) \{/);
+  assert.match(block, /sitesLoading = false;/);
+  assert.match(
+    block,
+    /sitesLoadError = `Could not read cookies: \$\{error\.message\}`/,
+  );
+  assert.doesNotMatch(block, /singleSiteReady = false/);
+  assert.doesNotMatch(block, /currentSiteSnapshot = null/);
+  assert.doesNotMatch(block, /clearLocation\(\)/);
+  assert.doesNotMatch(block, /handleRefreshError/);
+});
+
 test('table header stays visible while scrolling', () => {
   assert.match(popupCss, /\.table-container \{\s*[^}]*overflow: auto;/s);
   assert.match(
@@ -315,18 +349,27 @@ test('table-nowrap uses the checkbox state as the explicit class target', () => 
   assert.match(nowrapJs, /classList\.toggle\('nowrap', e\.target\.checked\)/);
 });
 
-test('Export All has a visible, accessible reason when disabled', () => {
+test('Export All stays focusable and exposes a live disabled reason', () => {
+  const exportAllTag = html.match(/<button\s+id="exportAll"[\s\S]*?>/)?.[0];
+  assert.ok(exportAllTag);
+  assert.match(exportAllTag, /aria-describedby="exportAllHint"/);
+  assert.match(exportAllTag, /aria-disabled="true"/);
+  assert.doesNotMatch(exportAllTag, /\sdisabled(?=\s|>)/);
   assert.match(
     html,
-    /id="exportAll"[\s\S]*?aria-describedby="exportAllHint"[\s\S]*?disabled/,
+    /id="exportAllHint"[\s\S]*?role="status"[\s\S]*?aria-live="polite"[\s\S]*?aria-atomic="true"[\s\S]*?hidden/,
   );
-  assert.match(html, /id="exportAllHint" class="export-hint" hidden/);
   assert.match(popupJs, /const exportAllBlockedReason = \(\) =>/);
+  assert.match(popupJs, /if \(sitesLoading\) return 'Reading cookies…';/);
   assert.match(
     popupJs,
     /Header String is single-site only\. Choose Netscape or JSON for Export All Cookies\./,
   );
   assert.match(popupJs, /el\.exportAllHint\.textContent = exportAllReason;/);
+  assert.match(
+    popupJs,
+    /document\.querySelector\('#exportAll'\)\.addEventListener\('click', async \(\) => \{\s*const blockedReason = exportAllBlockedReason\(\);\s*if \(blockedReason\) \{/s,
+  );
   assert.match(
     popupJs,
     /el\.format\.addEventListener\('change',[\s\S]*?updateSingleActionState\(\)/,

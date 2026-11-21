@@ -161,6 +161,8 @@ const main = async () => {
     await sitePage.goto(`http://127.0.0.1:${serverInfo.port}/`);
     await sitePage.goto(`http://127.0.0.2:${serverInfo.port}/`);
     await sitePage.goto(`http://127.0.0.1:${serverInfo.port}/`);
+    const otherSitePage = await browser.newPage();
+    await otherSitePage.goto(`http://127.0.0.2:${serverInfo.port}/`);
     await sitePage.bringToFront();
 
     const popup = await browser.newPage();
@@ -183,7 +185,8 @@ const main = async () => {
         () =>
           document.querySelectorAll('.site-item').length >= 2 &&
           !document.querySelector('#export').disabled &&
-          !document.querySelector('#exportAll').disabled,
+          document.querySelector('#exportAll').getAttribute('aria-disabled') ===
+            'false',
         { timeout: 15000, polling: 100 },
       );
     } catch (error) {
@@ -194,7 +197,9 @@ const main = async () => {
           batchStatus: document.querySelector('#batchStatus')?.textContent,
           singleStatus: document.querySelector('#singleStatus')?.textContent,
           exportDisabled: document.querySelector('#export')?.disabled,
-          exportAllDisabled: document.querySelector('#exportAll')?.disabled,
+          exportAllAriaDisabled: document
+            .querySelector('#exportAll')
+            ?.getAttribute('aria-disabled'),
         })),
       );
       throw error;
@@ -326,6 +331,182 @@ const main = async () => {
     }
     console.log(`Chrome single-site Export OK: ${path.basename(single)}`);
 
+    // The form controls need a real 24x24 target, not just a stylesheet rule.
+    // Measure both panels while they are visible, then return to Current Site.
+    const targetSizes = await popup.evaluate(async () => {
+      const measure = (id) => {
+        const rect = document.querySelector(`#${id}`).getBoundingClientRect();
+        return { id, width: rect.width, height: rect.height };
+      };
+      const sizes = [measure('format'), measure('nowrapOption')];
+      document.querySelector('#tabMulti').click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      sizes.push(measure('batchFormat'), measure('batchMode'));
+      document.querySelector('#tabSingle').click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return sizes;
+    });
+    for (const control of targetSizes) {
+      if (control.width < 24 || control.height < 24) {
+        throw new Error(
+          `Popup target ${control.id} is ${control.width}x${control.height}, below 24x24.`,
+        );
+      }
+    }
+    console.log(
+      `Chrome popup target sizes OK: ${targetSizes
+        .map((control) => `${control.id}=${control.width}x${control.height}`)
+        .join(', ')}`,
+    );
+
+    // Verify the single-site Export button is locked during a tab switch
+    // refresh. The delayed cookie read keeps the refresh in flight long enough
+    // to click; the stubbed downloader records any accidental export.
+    const singleSiteRace = await popup.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const current = tabs.find((tab) =>
+        tab.url?.startsWith('http://127.0.0.1'),
+      );
+      const other = tabs.find((tab) => tab.url?.startsWith('http://127.0.0.2'));
+      if (!current || !other) throw new Error('Missing test tabs');
+      const originalGetAll = chrome.cookies.getAll;
+      const originalDownload = chrome.downloads.download;
+      const downloads = [];
+      chrome.cookies.getAll = (details) =>
+        details.url
+          ? new Promise((resolve, reject) => {
+              setTimeout(() => {
+                originalGetAll
+                  .call(chrome.cookies, details)
+                  .then(resolve, reject);
+              }, 300);
+            })
+          : originalGetAll.call(chrome.cookies, details);
+      chrome.downloads.download = async (details) => {
+        downloads.push(details);
+        return 7777;
+      };
+      try {
+        await chrome.tabs.update(other.id, { active: true });
+        const button = document.querySelector('#export');
+        const started = Date.now();
+        while (Date.now() - started < 500 && !button.disabled) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const disabledBeforeClick = button.disabled;
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return {
+          disabledBeforeClick,
+          downloads,
+          rows: document.querySelectorAll('#netscapeTable tbody tr').length,
+        };
+      } finally {
+        chrome.cookies.getAll = originalGetAll;
+        chrome.downloads.download = originalDownload;
+      }
+    });
+    if (
+      !singleSiteRace.disabledBeforeClick ||
+      singleSiteRace.downloads.length !== 0
+    ) {
+      throw new Error(
+        `Single-site tab-switch race was not blocked: ${JSON.stringify(singleSiteRace)}`,
+      );
+    }
+    console.log('Chrome single-site tab-switch race OK');
+    await popup.waitForFunction(
+      () => {
+        const location = document.querySelector('#location')?.textContent ?? '';
+        return (
+          !document.querySelector('#export').disabled &&
+          location.includes('127.0.0.2') &&
+          document.querySelectorAll('#netscapeTable tbody tr').length > 0
+        );
+      },
+      { timeout: 5000, polling: 50 },
+    );
+    await sitePage.bringToFront();
+    await popup.waitForFunction(
+      () => {
+        const location = document.querySelector('#location')?.textContent ?? '';
+        return (
+          !document.querySelector('#export').disabled &&
+          location.includes('127.0.0.1') &&
+          document.querySelectorAll('#netscapeTable tbody tr').length > 0
+        );
+      },
+      { timeout: 5000, polling: 50 },
+    );
+
+    // A batch getAll failure must not clear the current-site table that was
+    // already read successfully. Only the selected-sites panel should show the
+    // batch error.
+    const batchIsolation = await popup.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      const current = tabs.find((tab) =>
+        tab.url?.startsWith('http://127.0.0.1'),
+      );
+      const other = tabs.find((tab) => tab.url?.startsWith('http://127.0.0.2'));
+      if (!current || !other) throw new Error('Missing test tabs');
+      const originalGetAll = chrome.cookies.getAll;
+      chrome.cookies.getAll = (details) =>
+        details.url
+          ? originalGetAll.call(chrome.cookies, details)
+          : Promise.reject(new Error('simulated batch getAll failure'));
+      try {
+        await chrome.tabs.update(other.id, { active: true });
+        const started = Date.now();
+        while (Date.now() - started < 2000) {
+          const singleReady =
+            !document.querySelector('#export').disabled &&
+            document.querySelectorAll('#netscapeTable tbody tr').length > 0;
+          const siteEmpty =
+            document.querySelector('.site-empty')?.textContent ?? '';
+          if (singleReady && siteEmpty.includes('Could not read cookies')) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return {
+          rows: document.querySelectorAll('#netscapeTable tbody tr').length,
+          location: document.querySelector('#location')?.textContent ?? '',
+          exportDisabled: document.querySelector('#export').disabled,
+          exportAllAriaDisabled: document
+            .querySelector('#exportAll')
+            .getAttribute('aria-disabled'),
+          siteItems: document.querySelectorAll('.site-item').length,
+          siteEmpty: document.querySelector('.site-empty')?.textContent ?? '',
+          batchStatus: document.querySelector('#batchStatus')?.textContent,
+        };
+      } finally {
+        chrome.cookies.getAll = originalGetAll;
+      }
+    });
+    if (
+      batchIsolation.rows < 1 ||
+      !batchIsolation.location.includes('127.0.0.2') ||
+      batchIsolation.exportDisabled ||
+      batchIsolation.exportAllAriaDisabled !== 'true' ||
+      batchIsolation.siteItems !== 0 ||
+      !batchIsolation.siteEmpty.includes('Could not read cookies') ||
+      !batchIsolation.batchStatus.includes('Could not read cookies')
+    ) {
+      throw new Error(
+        `Batch failure isolation did not preserve the current-site table: ${JSON.stringify(batchIsolation)}`,
+      );
+    }
+    console.log('Chrome batch failure isolation OK');
+    await sitePage.bringToFront();
+    await popup.waitForFunction(
+      () =>
+        document.querySelectorAll('.site-item').length >= 2 &&
+        !document.querySelector('#export').disabled &&
+        document.querySelector('#exportAll').getAttribute('aria-disabled') ===
+          'false',
+      { timeout: 5000, polling: 50 },
+    );
+
     // Export As uses the downloads API with saveAs=true. Stub only the
     // downloader so the browser-level popup path can be checked without a
     // native save dialog blocking the test.
@@ -415,16 +596,24 @@ const main = async () => {
       const format = document.querySelector('#format');
       format.value = 'header';
       format.dispatchEvent(new Event('change', { bubbles: true }));
+      const button = document.querySelector('#exportAll');
       const hint = document.querySelector('#exportAllHint');
+      button.focus();
       return {
-        disabled: document.querySelector('#exportAll').disabled,
+        ariaDisabled: button.getAttribute('aria-disabled'),
+        focused: document.activeElement === button,
         hint: hint.textContent,
         hintHidden: hint.hidden,
+        hintRole: hint.getAttribute('role'),
+        hintLive: hint.getAttribute('aria-live'),
       };
     });
     if (
-      !headerExportAll.disabled ||
+      headerExportAll.ariaDisabled !== 'true' ||
+      !headerExportAll.focused ||
       headerExportAll.hintHidden ||
+      headerExportAll.hintRole !== 'status' ||
+      headerExportAll.hintLive !== 'polite' ||
       !headerExportAll.hint.includes('single-site only')
     ) {
       throw new Error(
@@ -438,7 +627,9 @@ const main = async () => {
       format.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await popup.waitForFunction(
-      () => !document.querySelector('#exportAll').disabled,
+      () =>
+        document.querySelector('#exportAll').getAttribute('aria-disabled') ===
+        'false',
       { timeout: 3000, polling: 50 },
     );
 

@@ -117,6 +117,8 @@ let lastActiveSnapshot = null;
 let currentSiteSnapshot = null;
 /** @type {boolean} */
 let sitesReady = false;
+/** @type {boolean} */
+let sitesLoading = true;
 /** @type {string | null} */
 let sitesLoadError = null;
 const exportGuard = createExportGuard();
@@ -269,7 +271,9 @@ const setLocation = (url) => {
  */
 const exportAllBlockedReason = () => {
   if (batchHostPermissionMissing) return batchHostPermissionMessage();
-  if (!sitesReady) return 'Reading cookies…';
+  if (sitesLoading) return 'Reading cookies…';
+  if (sitesLoadError) return sitesLoadError;
+  if (!sitesReady) return 'Cookie list is unavailable.';
   if (sites.length === 0) return 'No cookies found in this cookie store.';
   if (el.format.value === 'header' && sites.length > 1) {
     return 'Header String is single-site only. Choose Netscape or JSON for Export All Cookies.';
@@ -288,7 +292,10 @@ const updateSingleActionState = () => {
   el.exportButton.disabled = blocked;
   el.exportAsButton.disabled = blocked;
   const exportAllReason = exportAllBlockedReason();
-  el.exportAllButton.disabled = Boolean(exportAllReason) || exportGuard.busy;
+  el.exportAllButton.setAttribute(
+    'aria-disabled',
+    String(Boolean(exportAllReason) || exportGuard.busy),
+  );
   el.exportAllHint.textContent = exportAllReason;
   el.exportAllHint.hidden = exportAllReason === '';
 };
@@ -368,6 +375,8 @@ const renderSiteList = () => {
       empty.textContent = 'No site matches this filter.';
     } else if (batchHostPermissionMissing) {
       empty.textContent = batchHostPermissionMessage();
+    } else if (sitesLoading) {
+      empty.textContent = 'Reading cookies…';
     } else if (sitesLoadError) {
       empty.textContent = sitesLoadError;
     } else {
@@ -429,19 +438,20 @@ const loadSites = async (snapshot, permissionMissing) => {
   batchHostPermissionMissing =
     permissionMissing ?? !(await hasHostPermission());
   sitesReady = false;
+  sitesLoading = true;
   sites = [];
   sitesLoadError = null;
   selectedSites.clear();
   updateSingleActionState();
   updateSummary();
   if (batchHostPermissionMissing) {
+    sitesLoading = false;
     currentSiteKey = '';
     renderSiteList();
     setBatchStatus(batchHostPermissionMessage(), 'warning');
     return;
   }
 
-  sitesLoadError = 'Reading cookies…';
   renderSiteList();
   setBatchStatus('Reading cookies…');
 
@@ -452,11 +462,32 @@ const loadSites = async (snapshot, permissionMissing) => {
     : '';
 
   const warnings = [];
-  const cookies = await getAllCookiesForBatch(activeSnapshot.tab, {
-    storeId: activeSnapshot.storeId,
-    onPartitionError: (error) => warnings.push(error),
-  });
-  sites = toSiteList(groupCookiesBySite(cookies));
+  try {
+    const cookies = await getAllCookiesForBatch(activeSnapshot.tab, {
+      storeId: activeSnapshot.storeId,
+      onPartitionError: (error) => warnings.push(error),
+    });
+    sites = toSiteList(groupCookiesBySite(cookies));
+  } catch (error) {
+    // The current-site read may have succeeded even when the whole-store
+    // batch read fails. Keep its snapshot, location, table and buttons intact;
+    // only the batch list and batch actions depend on this query.
+    sitesReady = false;
+    sitesLoading = false;
+    sites = [];
+    selectedSites.clear();
+    sitesLoadError = `Could not read cookies: ${error.message}`;
+    const permissionError = isHostPermissionError(error);
+    if (permissionError) batchHostPermissionMissing = true;
+    updateSingleActionState();
+    renderSiteList();
+    setBatchStatus(
+      permissionError ? batchHostPermissionMessage() : sitesLoadError,
+      permissionError ? 'warning' : 'error',
+    );
+    return;
+  }
+  sitesLoading = false;
   sitesReady = true;
   sitesLoadError = null;
   // Alphabetical order, with the active site pinned to the top.
@@ -606,6 +637,7 @@ const handleRefreshError = (error, permissionMissing = false) => {
   lastActiveSnapshot = null;
   singleSiteReady = false;
   sitesReady = false;
+  sitesLoading = false;
   sites = [];
   sitesLoadError = `Could not read cookies: ${error.message}`;
   currentSiteKey = '';
@@ -642,6 +674,8 @@ const refreshActiveTab = () => {
   currentSiteSnapshot = null;
   singleSiteReady = false;
   sitesReady = false;
+  sitesLoading = true;
+  sitesLoadError = null;
   updateSingleActionState();
   updateSummary();
   // Serialize whole-popup refreshes and share one snapshot between the
@@ -800,6 +834,11 @@ document.querySelector('#copy').addEventListener('click', async () => {
 });
 
 document.querySelector('#exportAll').addEventListener('click', async () => {
+  const blockedReason = exportAllBlockedReason();
+  if (blockedReason) {
+    setSingleStatus(blockedReason, 'warning');
+    return;
+  }
   if (!beginExclusiveAction()) return;
   try {
     if (el.format.value === 'header') {

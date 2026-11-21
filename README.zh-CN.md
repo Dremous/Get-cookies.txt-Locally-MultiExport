@@ -58,10 +58,11 @@ npm run build:firefox
 如果加载后站点列表为空，打开 `about:addons`，选中本扩展，进入「权限」页，启用
 「访问所有网站的数据」（Access your data for all websites），让 `chrome.cookies` 能读取 cookie。
 
-### Firefox AMO 自动发布
+### Firefox AMO 手动发布
 
-推送 `v*.*.*` 标签，或手动运行 `Publish Firefox add-on` workflow 时，会自动构建 Firefox ZIP、执行检查与测试，
-再通过 `web-ext sign --channel=listed --approval-timeout=0` 上传并提交 AMO 审核。命令在提交后返回，审核与签名
+`Publish Firefox add-on` workflow 只能手动触发。在 GitHub Actions 中启动时，输入与 `package.json` 完全一致的版本号；
+推送 tag 或创建 Release 都不会自动提交 AMO。workflow 会构建 Firefox ZIP、执行检查与测试，再通过
+`web-ext sign --channel=listed --approval-timeout=0` 上传并提交 AMO 审核。命令在提交后返回，审核与签名
 由 AMO 异步完成。
 
 需要在仓库 Secrets 中配置：

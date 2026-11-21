@@ -65,10 +65,10 @@ If the site list is empty after loading the temporary add-on, open `about:addons
 
 ### Firefox AMO publishing
 
-The `Publish Firefox add-on` workflow submits a listed Firefox version to AMO when a `v*.*.*` tag is pushed, or when
-the workflow is started manually. It builds the Firefox ZIP, runs the checks and tests, extracts the built package,
-and calls `web-ext sign --channel=listed --approval-timeout=0`. The command exits after submission; AMO review and
-signing continue asynchronously.
+The `Publish Firefox add-on` workflow is manual-only. Start it from GitHub Actions and enter the exact version from
+`package.json`; a tag push or release does not submit to AMO. The workflow builds the Firefox ZIP, runs the checks and
+tests, extracts the built package, and calls `web-ext sign --channel=listed --approval-timeout=0`. The command exits
+after submission; AMO review and signing continue asynchronously.
 
 Add these repository secrets:
 
