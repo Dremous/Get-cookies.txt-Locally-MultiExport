@@ -761,13 +761,26 @@ const run = async () => {
         'Current-site Export stayed enabled without host permission.',
       );
     }
-    if (await driver.findElement({ id: 'exportAll' }).isEnabled()) {
+    const exportAllWithoutPermission = await driver.findElement({
+      id: 'exportAll',
+    });
+    if (
+      (await exportAllWithoutPermission.getAttribute('aria-disabled')) !==
+      'true'
+    ) {
       throw new Error('Export All stayed enabled without host permission.');
     }
     await setAddonHostPermission(driver, addonId, true);
     await driver.get(`${baseUrl}/popup.html`);
     await driver.wait(
       () => driver.findElement({ id: 'export' }).isEnabled(),
+      10000,
+    );
+    await driver.wait(
+      async () =>
+        (await driver
+          .findElement({ id: 'exportAll' })
+          .getAttribute('aria-disabled')) === 'false',
       10000,
     );
     console.log('Firefox host permission missing/restore OK');
